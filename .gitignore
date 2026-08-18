@@ -3,3 +3,9 @@
 # Local generation inputs and validation artifacts. The released pet is in pangpang/.
 run/
 run-v2/
+
+# Per-user Xcode state and local build products.
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/

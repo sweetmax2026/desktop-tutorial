@@ -1,4 +1,11 @@
-# pangpang Codex Pet
+# Personal Desktop Projects
+
+This repository contains independent personal projects.
+
+- [`pangpang/`](pangpang/) - a custom Codex desktop pet.
+- [`BikiniBotomHRV/`](BikiniBotomHRV/) - a personal SwiftUI Apple Watch and iPhone HRV viewer.
+
+## pangpang Codex Pet
 
 pangpang is a cool white cat with golden eyes and a pink nose, made as a custom Codex desktop pet.
 
