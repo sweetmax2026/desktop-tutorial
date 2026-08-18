@@ -1,0 +1,5 @@
+.DS_Store
+
+# Local generation inputs and validation artifacts. The released pet is in pangpang/.
+run/
+run-v2/
