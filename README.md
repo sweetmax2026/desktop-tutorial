@@ -2,11 +2,11 @@
 
 This repository contains independent personal projects.
 
-- [`pangpang/`](pangpang/) - a custom Codex desktop pet.
-- [`PangpangDesktopPet/`](PangpangDesktopPet/) - a local macOS focus companion with Pomodoro, meditation, mood notes, and local-only statistics.
+- [`PangpangCodexDesktopPet/`](PangpangCodexDesktopPet/) - a custom Codex desktop pet.
+- [`PangpangFocusCompanion/`](PangpangFocusCompanion/) - a local macOS focus companion with Pomodoro, meditation, mood notes, and local-only statistics.
 - [`BikiniBotomHRV/`](BikiniBotomHRV/) - a personal SwiftUI Apple Watch and iPhone HRV viewer.
 
-## pangpang Codex Pet
+## Pangpang Codex Desktop Pet
 
 pangpang is a cool white cat with golden eyes and a pink nose, made as a custom Codex desktop pet.
 
@@ -19,7 +19,7 @@ pangpang is a cool white cat with golden eyes and a pink nose, made as a custom 
 
 ## Install
 
-Copy the `pangpang/` directory to `~/.codex/pets/pangpang/`, then fully quit and reopen Codex. Select **pangpang** in the Pets settings.
+Copy `PangpangCodexDesktopPet/` to `~/.codex/pets/pangpang/`, then fully quit and reopen Codex. Select **pangpang** in the Pets settings.
 
 ## Package format
 

@@ -1,4 +1,4 @@
-# pangpang（macOS）
+# Pangpang Focus Companion（macOS）
 
 一个常驻菜单栏的轻量专注工具。pangpang 是可拖动的悬浮入口：点击她打开工具箱，再由她陪你完成番茄钟、冥想和情绪记录。
 
