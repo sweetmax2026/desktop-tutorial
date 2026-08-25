@@ -29,13 +29,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         configurePetWindow()
         configureStatusItem()
         pomodoro.onBubble = { [weak self] bubble in self?.showBubble(bubble) }
-        pomodoro.onStateChange = { [weak self] in self?.configureStatusItem() }
+        pomodoro.onStateChange = { [weak self] in
+            self?.configureStatusItem()
+            self?.updatePetPresentation()
+        }
         wellbeing.onMeditationScheduleChanged = { [weak self] times in self?.scheduleMeditationReminders(times) }
         wellbeing.onMeditationFinished = { [weak self] in
             self?.showBubble(BubbleMessage(text: "这一分钟，留给你了。", actionTitle: "好", action: .dismiss))
         }
         wellbeing.refreshMeditationReminders()
         pomodoro.refreshForCurrentTime()
+        updatePetPresentation()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -50,14 +54,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func configurePetWindow() {
+        let width = petWindowWidth
         let content = PetContentView(
-            frame: NSRect(x: 0, y: 0, width: 86, height: 86),
+            frame: NSRect(x: 0, y: 0, width: width, height: 86),
+            activity: petActivity,
             onTap: { [weak self] in self?.handlePetTap() },
             onDragChanged: { [weak self] in self?.repositionAttachedPanels() },
             onDragEnded: { [weak self] in self?.constrainAndSavePetPosition() }
         )
         let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 86, height: 86),
+            contentRect: NSRect(x: 0, y: 0, width: width, height: 86),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -83,6 +89,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.repositionAttachedPanels()
             }
         }
+    }
+
+    private var petActivity: PetActivity? {
+        switch pomodoro.phase {
+        case .focus: return .focus
+        case .shortBreak, .longBreak: return .rest
+        case .paused: return .paused
+        default: return nil
+        }
+    }
+
+    private var petWindowWidth: CGFloat { petActivity == nil ? 86 : 154 }
+
+    private func updatePetPresentation() {
+        guard let petWindow else { return }
+        let origin = petWindow.frame.origin
+        let width = petWindowWidth
+        petWindow.contentView = PetContentView(
+            frame: NSRect(x: 0, y: 0, width: width, height: 86),
+            activity: petActivity,
+            onTap: { [weak self] in self?.handlePetTap() },
+            onDragChanged: { [weak self] in self?.repositionAttachedPanels() },
+            onDragEnded: { [weak self] in self?.constrainAndSavePetPosition() }
+        )
+        petWindow.setContentSize(NSSize(width: width, height: 86))
+        petWindow.setFrameOrigin(origin)
+        constrainAndSavePetPosition()
+        repositionAttachedPanels()
     }
 
     private func configureNotifications() {
@@ -245,10 +279,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             onShowStatistics: { [weak self] in self?.showStatistics() },
             onClose: { [weak self] in self?.toolboxWindow?.orderOut(nil) }
         )
-        let panel = toolboxWindow ?? makePanel(size: NSSize(width: 360, height: 470))
-        panel.setContentSize(NSSize(width: 360, height: 470))
-        panel.contentView = NSHostingView(rootView: content)
-        place(panel, above: petWindow, preferredWidth: 360)
+        let panel = toolboxWindow ?? makePanel(size: NSSize(width: 390, height: 510))
+        panel.setContentSize(NSSize(width: 390, height: 510))
+        panel.hasShadow = false
+        install(content, in: panel)
+        place(panel, above: petWindow, preferredWidth: 390)
         toolboxWindow = panel
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
@@ -264,10 +299,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             },
             onClose: { [weak self] in self?.toolboxWindow?.orderOut(nil) }
         )
-        let panel = toolboxWindow ?? makePanel(size: NSSize(width: 460, height: 560))
-        panel.setContentSize(NSSize(width: 460, height: 560))
-        panel.contentView = NSHostingView(rootView: content)
-        place(panel, above: petWindow, preferredWidth: 460)
+        let panel = toolboxWindow ?? makePanel(size: NSSize(width: 490, height: 600))
+        panel.setContentSize(NSSize(width: 490, height: 600))
+        panel.hasShadow = false
+        install(content, in: panel)
+        place(panel, above: petWindow, preferredWidth: 490)
         toolboxWindow = panel
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
@@ -285,7 +321,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self?.bubbleWindow?.orderOut(nil)
         }, onDismiss: { [weak self] in self?.bubbleWindow?.orderOut(nil) })
         let panel = bubbleWindow ?? makePanel(size: NSSize(width: 244, height: 108))
-        panel.contentView = NSHostingView(rootView: content)
+        install(content, in: panel)
         place(panel, above: petWindow, preferredWidth: 244)
         panel.orderFrontRegardless()
         bubbleWindow = panel
@@ -316,6 +352,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return panel
     }
 
+    private func install<Content: View>(_ content: Content, in panel: NSPanel) {
+        panel.contentView = ClearHostingView(rootView: content)
+        panel.invalidateShadow()
+        DispatchQueue.main.async { [weak panel] in panel?.invalidateShadow() }
+    }
+
     private func scheduleMeditationReminders(_ times: [MeditationTime]) {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: times.map { "pangpang.meditation.\($0.id)" })
@@ -339,7 +381,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let anchor else { panel.center(); return }
         let visible = anchor.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
         let x = min(max(anchor.frame.midX - preferredWidth / 2, visible.minX + 10), visible.maxX - panel.frame.width - 10)
-        let y = min(anchor.frame.maxY + 10, visible.maxY - panel.frame.height - 10)
+        let gap: CGFloat = 24
+        let aboveY = anchor.frame.maxY + gap
+        let belowY = anchor.frame.minY - panel.frame.height - gap
+        let y: CGFloat
+        if aboveY + panel.frame.height <= visible.maxY - 10 {
+            y = aboveY
+        } else if belowY >= visible.minY + 10 {
+            y = belowY
+        } else {
+            y = min(max(aboveY, visible.minY + 10), visible.maxY - panel.frame.height - 10)
+        }
         panel.setFrameOrigin(NSPoint(x: x, y: y))
     }
 
@@ -364,6 +416,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let y = min(max(window.frame.origin.y, visible.minY + 8), visible.maxY - window.frame.height - 8)
         if window.frame.origin != NSPoint(x: x, y: y) { window.setFrameOrigin(NSPoint(x: x, y: y)) }
     }
+}
+
+private final class ClearHostingView<Content: View>: NSHostingView<Content> {
+    required init(rootView: Content) {
+        super.init(rootView: rootView)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.isOpaque = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override var isOpaque: Bool { false }
 }
 
 private enum ToolboxSurface {

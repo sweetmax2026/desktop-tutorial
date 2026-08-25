@@ -29,29 +29,41 @@ struct StatisticsView: View {
     let onClose: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Button(action: onBack) { Image(systemName: "chevron.left") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-                Text("数据详情").font(.system(size: 17, weight: .semibold))
-                Spacer()
-                Button(action: onClose) { Image(systemName: "xmark") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-            }
-            ScrollView(showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 15) {
-                    pickerRow
-                    if period == .custom { customDatePickers }
-                    summaryCards
-                    trendSection
-                    detailsSection
+        ZStack {
+            PangpangPanelBackground()
+                .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+                .padding(.bottom, 18)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Button(action: onBack) { Image(systemName: "chevron.left") }
+                        .buttonStyle(.plain).foregroundStyle(.secondary)
+                        .frame(width: 26, height: 26)
+                        .background(.white.opacity(0.58), in: Circle())
+                    Text("数据详情").font(.system(size: 17, weight: .bold, design: .rounded))
+                    Spacer()
+                    Button(action: onClose) { Image(systemName: "xmark") }
+                        .buttonStyle(.plain).foregroundStyle(.secondary)
+                        .frame(width: 26, height: 26)
+                        .background(.white.opacity(0.58), in: Circle())
                 }
-                .padding(.bottom, 4)
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(alignment: .leading, spacing: 15) {
+                        pickerRow
+                        if period == .custom { customDatePickers }
+                        summaryCards
+                        trendSection
+                        detailsSection
+                    }
+                    .padding(.bottom, 4)
+                }
             }
+            .padding(.horizontal, 33)
+            .padding(.top, 33)
+            .padding(.bottom, 41)
         }
-        .padding(18)
-        .frame(width: 460, height: 560, alignment: .topLeading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .frame(width: 490, height: 600, alignment: .topLeading)
         .sheet(item: $selectedDay) { day in
             DailyDetailSheet(
                 day: day.date,

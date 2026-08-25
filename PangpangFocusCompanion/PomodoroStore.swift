@@ -71,7 +71,6 @@ final class PomodoroStore: ObservableObject {
     func startFocus() {
         phase = .focus; pausedRemaining = nil; endDate = Date().addingTimeInterval(focusDuration)
         announceStateChanged()
-        onBubble?(BubbleMessage(text: "好，25 分钟。别分心。", actionTitle: "知道了", action: .dismiss))
     }
 
     func togglePause() {

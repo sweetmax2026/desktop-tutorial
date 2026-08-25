@@ -1,9 +1,44 @@
 import AppKit
 import SwiftUI
 
-private enum PangpangPalette {
+enum PangpangPalette {
     static let petBackground = Color(red: 0.66, green: 0.83, blue: 0.94)
     static let petEdge = Color(red: 0.48, green: 0.69, blue: 0.83)
+    static let blush = Color(red: 1.0, green: 0.78, blue: 0.83)
+    static let ink = Color(red: 0.20, green: 0.24, blue: 0.31)
+}
+
+struct PangpangPanelBackground: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 26, style: .circular)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.98, green: 0.99, blue: 1.0),
+                        Color(red: 0.91, green: 0.96, blue: 0.99),
+                        Color(red: 1.0, green: 0.94, blue: 0.96)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+    }
+}
+
+private struct PangpangCardBackground: View {
+    let tint: Color
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 17, style: .continuous)
+            .fill(LinearGradient(colors: [.white.opacity(0.80), tint.opacity(0.15)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).strokeBorder(.white.opacity(0.75), lineWidth: 1))
+    }
+}
+
+enum PetActivity {
+    case focus
+    case rest
+    case paused
 }
 
 struct FloatingPetButton: View {
@@ -62,18 +97,19 @@ struct FloatingPetButton: View {
 }
 
 struct FloatingPetVisual: View {
+    let activity: PetActivity?
     @State private var isBlinking = false
 
     var body: some View {
         ZStack {
-            Circle().fill(PangpangPalette.petBackground)
+            Circle().fill(catGradient)
             Image(nsImage: petImage).resizable().scaledToFit().frame(width: 56, height: 56)
                 .scaleEffect(y: isBlinking ? 0.985 : 1)
         }
         .frame(width: 68, height: 68)
         .clipShape(Circle())
-        .overlay(Circle().strokeBorder(PangpangPalette.petEdge, lineWidth: 1.5))
-        .shadow(color: .black.opacity(0.18), radius: 5, y: 3)
+        .overlay(Circle().strokeBorder(ringGradient, lineWidth: activity == nil ? 1.5 : 2))
+        .shadow(color: accent.opacity(activity == nil ? 0.12 : 0.26), radius: activity == nil ? 5 : 7, y: 3)
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(Double.random(in: 4...7)))
@@ -90,25 +126,123 @@ struct FloatingPetVisual: View {
         }
         return image
     }
+
+    private var accent: Color { activity.map(activityAccent) ?? PangpangPalette.petEdge }
+    private var catGradient: LinearGradient {
+        LinearGradient(
+            colors: [Color(red: 0.72, green: 0.88, blue: 0.97), Color(red: 0.78, green: 0.83, blue: 0.98), activity.map(activityAccent).map { $0.opacity(0.20) } ?? PangpangPalette.petBackground],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+    private var ringGradient: LinearGradient {
+        LinearGradient(colors: [Color(red: 0.41, green: 0.69, blue: 0.88), accent, Color(red: 0.94, green: 0.52, blue: 0.66)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+}
+
+private struct PetStripView: View {
+    let activity: PetActivity?
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            FloatingPetVisual(activity: activity)
+                .frame(width: 86, height: 86, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let activity {
+                PetActivityBadge(activity: activity)
+                    .padding(.top, 9)
+                    .padding(.trailing, 3)
+                    .transition(.opacity.combined(with: .scale(scale: 0.82, anchor: .leading)))
+            }
+        }
+        .frame(width: activity == nil ? 86 : 138, height: 86, alignment: .leading)
+        .offset(x: activity == nil ? 0 : 8)
+        .frame(width: activity == nil ? 86 : 154, height: 86, alignment: .leading)
+        .animation(.easeOut(duration: 0.22), value: activityLabel)
+    }
+
+    private var activityLabel: String { activity.map(PetActivityBadge.label(for:)) ?? "" }
+}
+
+private struct PetActivityBadge: View {
+    let activity: PetActivity
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: symbol)
+                .font(.system(size: 9, weight: .bold))
+            Text(Self.label(for: activity))
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 8)
+        .frame(height: 26)
+        .background(badgeGradient, in: Capsule())
+        .overlay(Capsule().strokeBorder(badgeBorderGradient, lineWidth: 1))
+        .shadow(color: tint.opacity(0.18), radius: 4, y: 2)
+        .accessibilityLabel(Self.label(for: activity))
+    }
+
+    static func label(for activity: PetActivity) -> String {
+        switch activity {
+        case .focus: return "专注"
+        case .rest: return "休息"
+        case .paused: return "暂停"
+        }
+    }
+
+    private var symbol: String {
+        switch activity {
+        case .focus: return "sparkles"
+        case .rest: return "cup.and.saucer.fill"
+        case .paused: return "moon.zzz.fill"
+        }
+    }
+
+    private var tint: Color {
+        activityAccent(activity)
+    }
+    private var badgeGradient: LinearGradient {
+        // Keep the leading edge visibly filled: a translucent white start made
+        // the capsule look as if the floating layer was covering its left side.
+        LinearGradient(colors: [Color(red: 1.0, green: 0.84, blue: 0.88).opacity(0.98), tint.opacity(0.28), Color(red: 0.84, green: 0.89, blue: 1.0).opacity(0.88)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+    private var badgeBorderGradient: LinearGradient {
+        LinearGradient(colors: [Color(red: 1.0, green: 0.66, blue: 0.73).opacity(0.72), tint.opacity(0.62), Color(red: 0.57, green: 0.66, blue: 0.90).opacity(0.68)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+}
+
+private func activityAccent(_ activity: PetActivity) -> Color {
+    switch activity {
+    case .focus: return Color(red: 0.91, green: 0.39, blue: 0.48)
+    case .rest: return Color(red: 0.33, green: 0.62, blue: 0.85)
+    case .paused: return Color(red: 0.45, green: 0.47, blue: 0.54)
+    }
 }
 
 final class PetContentView: NSView {
-    init(frame frameRect: NSRect, onTap: @escaping () -> Void, onDragChanged: @escaping () -> Void, onDragEnded: @escaping () -> Void) {
+    init(frame frameRect: NSRect, activity: PetActivity?, onTap: @escaping () -> Void, onDragChanged: @escaping () -> Void, onDragEnded: @escaping () -> Void) {
         super.init(frame: frameRect)
-        let visual = NSHostingView(rootView: FloatingPetVisual())
-        visual.frame = bounds
-        visual.autoresizingMask = [.width, .height]
-        addSubview(visual)
-
-        let button = PetButton(frame: bounds)
-        button.autoresizingMask = [.width, .height]
+        let button = PetButton(frame: NSRect(x: 0, y: 0, width: 86, height: 86))
+        button.autoresizingMask = [.height]
         button.onTap = onTap
         button.onDragChanged = onDragChanged
         button.onDragEnded = onDragEnded
         addSubview(button)
+
+        // Draw the gradient badge above the interaction layer, while passing all
+        // pointer events through to the pet button underneath.
+        let visual = PassthroughHostingView(rootView: PetStripView(activity: activity))
+        visual.frame = bounds
+        visual.autoresizingMask = [.width, .height]
+        addSubview(visual)
     }
 
     required init?(coder: NSCoder) { nil }
+}
+
+private final class PassthroughHostingView<Content: View>: NSHostingView<Content> {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 final class PetButton: NSButton {
@@ -283,27 +417,45 @@ struct ToolboxView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 15) {
-            HStack {
-                if selectedTool != .home {
-                    Button { select(.home) } label: { Image(systemName: "chevron.left") }
+        ZStack {
+            PangpangPanelBackground()
+                .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+                .padding(.bottom, 18)
+            VStack(alignment: .leading, spacing: 15) {
+                HStack(spacing: 9) {
+                    if selectedTool != .home {
+                        Button { select(.home) } label: { Image(systemName: "chevron.left") }
+                            .buttonStyle(.plain).foregroundStyle(.secondary)
+                    } else {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(PangpangPalette.petEdge)
+                            .frame(width: 26, height: 26)
+                            .background(.white.opacity(0.68), in: Circle())
+                    }
+                    Text(title).font(.system(size: 17, weight: .bold, design: .rounded))
+                    Spacer()
+                    Button(action: onClose) { Image(systemName: "xmark") }
                         .buttonStyle(.plain).foregroundStyle(.secondary)
+                        .frame(width: 26, height: 26)
+                        .background(.white.opacity(0.46), in: Circle())
                 }
-                Text(title).font(.system(size: 16, weight: .semibold))
-                Spacer()
-                Button(action: onClose) { Image(systemName: "xmark") }.buttonStyle(.plain).foregroundStyle(.secondary)
-            }
-            Group {
-                switch selectedTool {
-                case .home: home
-                case .pomodoro: pomodoroDetail
-                case .meditation: meditationDetail
-                case .mood: moodDetail
+                Group {
+                    switch selectedTool {
+                    case .home: home
+                    case .pomodoro: pomodoroDetail
+                    case .meditation: meditationDetail
+                    case .mood: moodDetail
+                    }
                 }
             }
+            .padding(.horizontal, 33)
+            .padding(.top, 33)
+            .padding(.bottom, 41)
         }
-        .padding(18).frame(width: 360, height: 470, alignment: .topLeading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
+        .frame(width: 390, height: 510, alignment: .topLeading)
     }
 
     private var title: String {
@@ -330,7 +482,7 @@ struct ToolboxView: View {
                 Divider().padding(.leading, 43)
                 toolRow(icon: "face.smiling", title: "情绪记录", detail: wellbeing.moodCountToday() == 0 ? "今天还没有记录" : "今天 \(wellbeing.moodCountToday()) 条", tint: .orange) { select(.mood) }
             }
-            .background(.quaternary.opacity(0.32), in: RoundedRectangle(cornerRadius: 14))
+            .background(PangpangCardBackground(tint: PangpangPalette.petBackground))
             Button(action: onShowStatistics) {
                 Label("数据详情", systemImage: "chart.xyaxis.line")
                     .font(.system(size: 13, weight: .medium))
@@ -376,7 +528,7 @@ struct ToolboxView: View {
             }
         }
         .padding(13)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .background(PangpangCardBackground(tint: pomodoro.canPause ? .red : PangpangPalette.petBackground))
     }
 
     private var ongoingTitle: String {
@@ -396,7 +548,7 @@ struct ToolboxView: View {
                 Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(.primary)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 10)
-            .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 13))
+            .background(PangpangCardBackground(tint: tint))
         }
         .buttonStyle(.plain)
     }
@@ -429,6 +581,7 @@ struct ToolboxView: View {
                     .font(.system(size: 24, weight: .bold, design: .rounded))
                 Text(wellbeing.meditationRemainingText.map { "剩余 \($0)" } ?? "随时可以开始")
                     .font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(.secondary)
+                BreathingFlowerView(isActive: wellbeing.isMeditating)
                 Button(wellbeing.isMeditating ? "重新开始 1 分钟" : "开始 1 分钟冥想") { wellbeing.startMeditation() }
                     .buttonStyle(.borderedProminent).tint(.blue)
                 Divider()
@@ -551,6 +704,85 @@ struct ToolboxView: View {
     private func select(_ tool: ToolboxTool) {
         selectedTool = tool
         onToolChanged(tool)
+    }
+}
+
+private struct BreathingFlowerView: View {
+    let isActive: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isExpanded = false
+    @State private var isInhaling = true
+
+    var body: some View {
+        VStack(spacing: 4) {
+            ZStack {
+                ForEach(0..<8, id: \.self) { index in
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.35, green: 0.72, blue: 0.98).opacity(0.82),
+                                    Color(red: 0.55, green: 0.55, blue: 0.96).opacity(0.76),
+                                    Color(red: 0.98, green: 0.55, blue: 0.72).opacity(0.68)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 52, height: 52)
+                        .offset(y: -(isExpanded ? 34 : 16))
+                        .rotationEffect(.degrees(Double(index) * 45))
+                        .opacity(isActive ? 0.88 : 0.48)
+                }
+
+                Circle()
+                    .fill(.white.opacity(0.72))
+                    .frame(width: 42, height: 42)
+                    .overlay {
+                        Image(systemName: "wind")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(PangpangPalette.petEdge)
+                    }
+                    .shadow(color: PangpangPalette.petEdge.opacity(0.18), radius: 6)
+            }
+            .frame(width: 142, height: 142)
+
+            Text(cueText)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(PangpangPalette.ink.opacity(0.72))
+                .contentTransition(.opacity)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(PangpangCardBackground(tint: .blue))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(isActive ? cueText : "呼吸动画，准备开始")
+        .task(id: isActive) {
+            guard isActive else {
+                isInhaling = true
+                withAnimation(.easeOut(duration: 0.45)) { isExpanded = false }
+                return
+            }
+
+            isInhaling = true
+            isExpanded = false
+            guard !reduceMotion else { return }
+            try? await Task.sleep(for: .milliseconds(100))
+            withAnimation(.easeInOut(duration: 4).repeatForever(autoreverses: true)) {
+                isExpanded = true
+            }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(4))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: 0.25)) { isInhaling.toggle() }
+            }
+        }
+    }
+
+    private var cueText: String {
+        if !isActive { return "准备好后，跟着它呼吸" }
+        if reduceMotion { return "慢慢呼吸" }
+        return isInhaling ? "吸气" : "呼气"
     }
 }
 
