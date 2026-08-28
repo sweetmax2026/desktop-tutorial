@@ -39,6 +39,7 @@ enum PetActivity {
     case focus
     case rest
     case paused
+    case guarding
 }
 
 struct FloatingPetButton: View {
@@ -174,12 +175,13 @@ private struct PetActivityBadge: View {
             Text(Self.label(for: activity))
                 .font(.system(size: 10, weight: .bold, design: .rounded))
         }
-        .foregroundStyle(tint)
+        .foregroundStyle(badgeInk)
         .padding(.horizontal, 8)
         .frame(height: 26)
         .background(badgeGradient, in: Capsule())
         .overlay(Capsule().strokeBorder(badgeBorderGradient, lineWidth: 1))
-        .shadow(color: tint.opacity(0.18), radius: 4, y: 2)
+        .shadow(color: .white.opacity(0.14), radius: 1)
+        .shadow(color: tint.opacity(0.42), radius: 6, y: 2)
         .accessibilityLabel(Self.label(for: activity))
     }
 
@@ -188,6 +190,7 @@ private struct PetActivityBadge: View {
         case .focus: return "专注"
         case .rest: return "休息"
         case .paused: return "暂停"
+        case .guarding: return "专注守护"
         }
     }
 
@@ -196,19 +199,40 @@ private struct PetActivityBadge: View {
         case .focus: return "sparkles"
         case .rest: return "cup.and.saucer.fill"
         case .paused: return "moon.zzz.fill"
+        case .guarding: return "lock.fill"
         }
     }
 
     private var tint: Color {
         activityAccent(activity)
     }
-    private var badgeGradient: LinearGradient {
-        // Keep the leading edge visibly filled: a translucent white start made
-        // the capsule look as if the floating layer was covering its left side.
-        LinearGradient(colors: [Color(red: 1.0, green: 0.84, blue: 0.88).opacity(0.98), tint.opacity(0.28), Color(red: 0.84, green: 0.89, blue: 1.0).opacity(0.88)], startPoint: .topLeading, endPoint: .bottomTrailing)
+
+    private var badgeInk: Color {
+        switch activity {
+        case .focus: return Color(red: 0.70, green: 0.20, blue: 0.29)
+        case .rest: return Color(red: 0.22, green: 0.43, blue: 0.64)
+        case .paused: return Color(red: 0.30, green: 0.31, blue: 0.38)
+        case .guarding: return Color(red: 0.32, green: 0.26, blue: 0.64)
+        }
     }
+
+    private var badgeGradient: LinearGradient {
+        let colors: [Color]
+        switch activity {
+        case .focus:
+            colors = [Color(red: 1.0, green: 0.88, blue: 0.92), Color(red: 1.0, green: 0.79, blue: 0.85), Color(red: 0.87, green: 0.90, blue: 1.0)]
+        case .rest:
+            colors = [Color(red: 0.91, green: 0.97, blue: 1.0), Color(red: 0.77, green: 0.90, blue: 1.0), Color(red: 0.91, green: 0.87, blue: 1.0)]
+        case .paused:
+            colors = [Color(red: 0.96, green: 0.96, blue: 0.99), Color(red: 0.85, green: 0.87, blue: 0.93), Color(red: 0.95, green: 0.90, blue: 0.97)]
+        case .guarding:
+            colors = [Color(red: 1.0, green: 0.86, blue: 0.92), Color(red: 0.89, green: 0.83, blue: 1.0), Color(red: 0.80, green: 0.90, blue: 1.0)]
+        }
+        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
     private var badgeBorderGradient: LinearGradient {
-        LinearGradient(colors: [Color(red: 1.0, green: 0.66, blue: 0.73).opacity(0.72), tint.opacity(0.62), Color(red: 0.57, green: 0.66, blue: 0.90).opacity(0.68)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(colors: [Color(red: 0.96, green: 0.58, blue: 0.69), tint, Color(red: 0.52, green: 0.64, blue: 0.89)], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 }
 
@@ -217,6 +241,7 @@ private func activityAccent(_ activity: PetActivity) -> Color {
     case .focus: return Color(red: 0.91, green: 0.39, blue: 0.48)
     case .rest: return Color(red: 0.33, green: 0.62, blue: 0.85)
     case .paused: return Color(red: 0.45, green: 0.47, blue: 0.54)
+    case .guarding: return Color(red: 0.48, green: 0.45, blue: 0.82)
     }
 }
 
@@ -393,11 +418,12 @@ private final class PetInteractionView: NSView {
     @objc private func quit() { onQuit() }
 }
 
-enum ToolboxTool { case home, pomodoro, meditation, mood }
+enum ToolboxTool { case home, pomodoro, meditation, mood, appBlocker }
 
 struct ToolboxView: View {
     @ObservedObject var pomodoro: PomodoroStore
     @ObservedObject var wellbeing: WellbeingStore
+    @ObservedObject var appBlocker: AppBlockerStore
     @State private var selectedTool: ToolboxTool
     @State private var draftMeditationTime = Date()
     @State private var savedMoodName: String?
@@ -407,9 +433,10 @@ struct ToolboxView: View {
     let onShowStatistics: () -> Void
     let onClose: () -> Void
 
-    init(pomodoro: PomodoroStore, wellbeing: WellbeingStore, initialTool: ToolboxTool, onToolChanged: @escaping (ToolboxTool) -> Void, onShowStatistics: @escaping () -> Void, onClose: @escaping () -> Void) {
+    init(pomodoro: PomodoroStore, wellbeing: WellbeingStore, appBlocker: AppBlockerStore, initialTool: ToolboxTool, onToolChanged: @escaping (ToolboxTool) -> Void, onShowStatistics: @escaping () -> Void, onClose: @escaping () -> Void) {
         self.pomodoro = pomodoro
         self.wellbeing = wellbeing
+        self.appBlocker = appBlocker
         _selectedTool = State(initialValue: initialTool)
         self.onToolChanged = onToolChanged
         self.onShowStatistics = onShowStatistics
@@ -423,7 +450,7 @@ struct ToolboxView: View {
                 .padding(.horizontal, 10)
                 .padding(.top, 10)
                 .padding(.bottom, 18)
-            VStack(alignment: .leading, spacing: 15) {
+            VStack(alignment: .leading, spacing: selectedTool == .home ? 11 : 15) {
                 HStack(spacing: 9) {
                     if selectedTool != .home {
                         Button { select(.home) } label: { Image(systemName: "chevron.left") }
@@ -448,12 +475,13 @@ struct ToolboxView: View {
                     case .pomodoro: pomodoroDetail
                     case .meditation: meditationDetail
                     case .mood: moodDetail
+                    case .appBlocker: appBlockerDetail
                     }
                 }
             }
             .padding(.horizontal, 33)
-            .padding(.top, 33)
-            .padding(.bottom, 41)
+            .padding(.top, selectedTool == .home ? 27 : 33)
+            .padding(.bottom, selectedTool == .home ? 29 : 41)
         }
         .frame(width: 390, height: 510, alignment: .topLeading)
     }
@@ -464,25 +492,32 @@ struct ToolboxView: View {
         case .pomodoro: return "番茄钟"
         case .meditation: return "1 分钟冥想"
         case .mood: return "1 分钟情绪记录"
+        case .appBlocker: return "App 管控"
         }
     }
 
     private var home: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            statusCard
-            HStack(spacing: 9) {
-                quickAction(icon: "play.fill", title: "专注", tint: .red) { if pomodoro.phase == .idle || pomodoro.phase == .readyForFocus { pomodoro.startFocus() } else { select(.pomodoro) } }
-                quickAction(icon: "wind", title: "冥想", tint: .blue) { wellbeing.startMeditation(); select(.meditation) }
-                quickAction(icon: "face.smiling", title: "记录", tint: .orange) { select(.mood) }
+        VStack(alignment: .leading, spacing: 10) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 10) {
+                    statusCard
+                    HStack(spacing: 9) {
+                        quickAction(icon: "play.fill", title: "专注", tint: .red) { if pomodoro.phase == .idle || pomodoro.phase == .readyForFocus { pomodoro.startFocus() } else { select(.pomodoro) } }
+                        quickAction(icon: "wind", title: "冥想", tint: .blue) { wellbeing.startMeditation(); select(.meditation) }
+                        quickAction(icon: "face.smiling", title: "记录", tint: .orange) { select(.mood) }
+                    }
+                    VStack(spacing: 0) {
+                        toolRow(icon: "timer", title: "番茄钟", detail: "今天 \(pomodoro.focusCountToday) 轮", tint: .red) { select(.pomodoro) }
+                        Divider().padding(.leading, 43)
+                        toolRow(icon: "wind", title: "1 分钟冥想", detail: "今天 \(wellbeing.meditationCountToday) 次", tint: .blue) { select(.meditation) }
+                        Divider().padding(.leading, 43)
+                        toolRow(icon: "face.smiling", title: "情绪记录", detail: wellbeing.moodCountToday() == 0 ? "今天还没有记录" : "今天 \(wellbeing.moodCountToday()) 条", tint: .orange) { select(.mood) }
+                        Divider().padding(.leading, 43)
+                        toolRow(icon: appBlocker.isEnabled ? "lock.fill" : "lock.open", title: "App 管控", detail: appBlocker.statusText, tint: .purple) { select(.appBlocker) }
+                    }
+                    .background(PangpangCardBackground(tint: PangpangPalette.petBackground))
+                }
             }
-            VStack(spacing: 0) {
-                toolRow(icon: "timer", title: "番茄钟", detail: "今天 \(pomodoro.focusCountToday) 轮", tint: .red) { select(.pomodoro) }
-                Divider().padding(.leading, 43)
-                toolRow(icon: "wind", title: "1 分钟冥想", detail: "今天 \(wellbeing.meditationCountToday) 次", tint: .blue) { select(.meditation) }
-                Divider().padding(.leading, 43)
-                toolRow(icon: "face.smiling", title: "情绪记录", detail: wellbeing.moodCountToday() == 0 ? "今天还没有记录" : "今天 \(wellbeing.moodCountToday()) 条", tint: .orange) { select(.mood) }
-            }
-            .background(PangpangCardBackground(tint: PangpangPalette.petBackground))
             Button(action: onShowStatistics) {
                 Label("数据详情", systemImage: "chart.xyaxis.line")
                     .font(.system(size: 13, weight: .medium))
@@ -490,7 +525,6 @@ struct ToolboxView: View {
                     .padding(.vertical, 8)
             }
             .buttonStyle(.bordered)
-            Spacer()
             Text("数据仅保存在这台 Mac 上。")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
         }
@@ -527,7 +561,7 @@ struct ToolboxView: View {
                 .help(pomodoro.isPaused ? "继续计时" : "暂停计时")
             }
         }
-        .padding(13)
+        .padding(11)
         .background(PangpangCardBackground(tint: pomodoro.canPause ? .red : PangpangPalette.petBackground))
     }
 
@@ -547,7 +581,7 @@ struct ToolboxView: View {
                 Image(systemName: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(tint)
                 Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(.primary)
             }
-            .frame(maxWidth: .infinity).padding(.vertical, 10)
+            .frame(maxWidth: .infinity).padding(.vertical, 8)
             .background(PangpangCardBackground(tint: tint))
         }
         .buttonStyle(.plain)
@@ -669,6 +703,98 @@ struct ToolboxView: View {
         }
     }
 
+    private var appBlockerDetail: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(spacing: 12) {
+                Image(systemName: appBlocker.isEnabled ? "lock.fill" : "lock.open")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(.purple)
+                    .frame(width: 40, height: 40)
+                    .background(Color.purple.opacity(0.12), in: Circle())
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(appBlocker.isBlockingNow ? "Pangpang 正在守护" : appBlocker.isEnabled ? "已开启，等待专注" : "需要时再打开")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    Text("打开黑名单 App 时，会立刻隐藏并带你回来。")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Toggle("App 管控", isOn: Binding(
+                    get: { appBlocker.isEnabled },
+                    set: { appBlocker.setEnabled($0) }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .tint(.purple)
+            }
+            .padding(13)
+            .background(PangpangCardBackground(tint: .purple))
+
+            HStack {
+                Text("黑名单")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                Spacer()
+                Button {
+                    appBlocker.chooseApplications()
+                } label: {
+                    Label("添加 App", systemImage: "plus")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            if appBlocker.blockedApplications.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "shield.lefthalf.filled")
+                        .font(.system(size: 25, weight: .medium))
+                        .foregroundStyle(Color.purple.opacity(0.55))
+                    Text("还没有黑名单")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    Text("把容易让你分心的 App 放进来。")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 160)
+                .background(PangpangCardBackground(tint: .purple))
+            } else {
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(appBlocker.blockedApplications) { application in
+                            HStack(spacing: 11) {
+                                Image(nsImage: appBlocker.icon(for: application))
+                                    .resizable().scaledToFit().frame(width: 30, height: 30)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(application.name)
+                                        .font(.system(size: 13, weight: .semibold))
+                                    Text(application.bundleIdentifier)
+                                        .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                Spacer()
+                                Button(role: .destructive) {
+                                    appBlocker.remove(application)
+                                } label: {
+                                    Image(systemName: "minus.circle.fill")
+                                        .font(.system(size: 15))
+                                }
+                                .buttonStyle(.plain)
+                                .help("移出黑名单")
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 9)
+                            if application.id != appBlocker.blockedApplications.last?.id {
+                                Divider().padding(.leading, 53)
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: 220)
+                .background(PangpangCardBackground(tint: .purple))
+            }
+
+            Text("开关可独立设置，仅在 25 分钟专注中生效；休息和暂停期间自动放行。不会强制退出或删除数据。")
+                .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+    }
+
     private var meditationSummary: String {
         if wellbeing.isMeditating { return wellbeing.meditationRemainingText ?? "进行中" }
         return wellbeing.meditationTimes.map(\.displayText).joined(separator: " · ")
@@ -695,7 +821,7 @@ struct ToolboxView: View {
                 Spacer()
                 Image(systemName: "chevron.right").font(.system(size: 11)).foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 12).padding(.vertical, 10)
+            .padding(.horizontal, 12).padding(.vertical, 8)
             .contentShape(Rectangle())
         }
         .buttonStyle(ResponsiveRowButtonStyle())

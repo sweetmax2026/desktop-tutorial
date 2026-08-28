@@ -15,6 +15,7 @@ struct PangpangDesktopPetApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private let pomodoro = PomodoroStore()
     private let wellbeing = WellbeingStore()
+    private let appBlocker = AppBlockerStore()
     private var petWindow: NSPanel?
     private var toolboxWindow: NSPanel?
     private var bubbleWindow: NSPanel?
@@ -30,15 +31,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         configureStatusItem()
         pomodoro.onBubble = { [weak self] bubble in self?.showBubble(bubble) }
         pomodoro.onStateChange = { [weak self] in
-            self?.configureStatusItem()
-            self?.updatePetPresentation()
+            guard let self else { return }
+            self.appBlocker.setFocusActive(self.pomodoro.phase == .focus)
+            self.configureStatusItem()
+            self.updatePetPresentation()
         }
         wellbeing.onMeditationScheduleChanged = { [weak self] times in self?.scheduleMeditationReminders(times) }
         wellbeing.onMeditationFinished = { [weak self] in
             self?.showBubble(BubbleMessage(text: "这一分钟，留给你了。", actionTitle: "好", action: .dismiss))
         }
+        appBlocker.onBlockedApplication = { [weak self] application in
+            self?.showBubble(BubbleMessage(text: "现在不许打开 \(application.name)。", actionTitle: "知道了", action: .dismiss))
+        }
+        appBlocker.onStateChange = { [weak self] in
+            self?.configureStatusItem()
+            self?.updatePetPresentation()
+        }
         wellbeing.refreshMeditationReminders()
         pomodoro.refreshForCurrentTime()
+        appBlocker.setFocusActive(pomodoro.phase == .focus)
         updatePetPresentation()
     }
 
@@ -92,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private var petActivity: PetActivity? {
+        if appBlocker.isBlockingNow { return .guarding }
         switch pomodoro.phase {
         case .focus: return .focus
         case .shortBreak, .longBreak: return .rest
@@ -196,6 +208,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             end.target = self
         }
         menu.addItem(.separator())
+        let blocker = menu.addItem(
+            withTitle: appBlocker.isEnabled ? "暂停 App 管控" : "开启 App 管控",
+            action: #selector(toggleAppBlocker),
+            keyEquivalent: ""
+        )
+        blocker.target = self
+        menu.addItem(.separator())
         let show = menu.addItem(withTitle: "显示 pangpang", action: #selector(showPet), keyEquivalent: "")
         show.target = self
         let hide = menu.addItem(withTitle: "隐藏桌面入口", action: #selector(hidePet), keyEquivalent: "")
@@ -240,6 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc private func togglePause() { pomodoro.togglePause() }
     @objc private func endCurrent() { pomodoro.endCurrentSession() }
+    @objc private func toggleAppBlocker() { appBlocker.toggleEnabled() }
     @objc private func quit() { NSApp.terminate(nil) }
 
     private func startFocus() {
@@ -274,8 +294,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let content = ToolboxView(
             pomodoro: pomodoro,
             wellbeing: wellbeing,
+            appBlocker: appBlocker,
             initialTool: tool,
-            onToolChanged: { [weak self] in self?.lastTool = $0 },
+            onToolChanged: { [weak self] tool in
+                self?.lastTool = tool
+                self?.lastSurface = .toolbox(tool)
+            },
             onShowStatistics: { [weak self] in self?.showStatistics() },
             onClose: { [weak self] in self?.toolboxWindow?.orderOut(nil) }
         )
@@ -345,6 +369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        panel.appearance = NSAppearance(named: .aqua)
         panel.hasShadow = true
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -353,7 +378,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func install<Content: View>(_ content: Content, in panel: NSPanel) {
-        panel.contentView = ClearHostingView(rootView: content)
+        let lightContent = content.environment(\.colorScheme, .light)
+        panel.contentView = ClearHostingView(rootView: lightContent)
+        panel.appearance = NSAppearance(named: .aqua)
         panel.invalidateShadow()
         DispatchQueue.main.async { [weak panel] in panel?.invalidateShadow() }
     }
