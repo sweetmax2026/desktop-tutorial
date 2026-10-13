@@ -21,6 +21,8 @@ final class AppBlockerStore: ObservableObject {
     var onStateChange: (() -> Void)?
 
     private let defaultsKey = "pangpang.app-blocker.snapshot"
+    private let defaults: UserDefaults
+    private let monitorsApplications: Bool
     private var activationObserver: NSObjectProtocol?
     private var lastAllowedApplication: NSRunningApplication?
     private var lastBlockedBundleIdentifier: String?
@@ -34,9 +36,11 @@ final class AppBlockerStore: ObservableObject {
         "com.apple.SystemUIServer"
     ]
 
-    init() {
+    init(defaults: UserDefaults = .standard, monitorsApplications: Bool = true) {
+        self.defaults = defaults
+        self.monitorsApplications = monitorsApplications
         restore()
-        startMonitoring()
+        if monitorsApplications { startMonitoring() }
         if let application = NSWorkspace.shared.frontmostApplication,
            application.bundleIdentifier != Bundle.main.bundleIdentifier {
             lastAllowedApplication = application
@@ -139,6 +143,7 @@ final class AppBlockerStore: ObservableObject {
     }
 
     private func checkFrontmostApplication() {
+        guard monitorsApplications else { return }
         guard let application = NSWorkspace.shared.frontmostApplication else { return }
         handleActivatedApplication(application)
     }
@@ -178,13 +183,13 @@ final class AppBlockerStore: ObservableObject {
     private func persistAndNotify() {
         let snapshot = Snapshot(isEnabled: isEnabled, blockedApplications: blockedApplications)
         if let data = try? JSONEncoder().encode(snapshot) {
-            UserDefaults.standard.set(data, forKey: defaultsKey)
+            defaults.set(data, forKey: defaultsKey)
         }
         onStateChange?()
     }
 
     private func restore() {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
+        guard let data = defaults.data(forKey: defaultsKey),
               let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
         isEnabled = snapshot.isEnabled
         blockedApplications = snapshot.blockedApplications

@@ -1,312 +1,280 @@
 import SwiftUI
+import Charts
 
 private enum StatisticsPeriod: String, CaseIterable, Identifiable {
-    case today = "今天"
-    case week = "近 7 天"
-    case month = "近 30 天"
-    case custom = "日期"
+    case today = "今天", week = "近 7 天", month = "近 30 天", custom = "自定义"
     var id: Self { self }
 }
-
-private enum StatisticsMetric: String, CaseIterable, Identifiable {
-    case all = "全部"
-    case focus = "番茄钟"
-    case meditation = "冥想"
-    case mood = "情绪"
-    var id: Self { self }
-}
+enum StatisticsMetric { case focus, meditation, mood }
 
 struct StatisticsView: View {
     @ObservedObject var pomodoro: PomodoroStore
     @ObservedObject var wellbeing: WellbeingStore
-    @State private var period: StatisticsPeriod = .today
-    @State private var metric: StatisticsMetric = .all
-    @State private var customStart = Calendar.current.date(byAdding: .day, value: -6, to: .now) ?? .now
-    @State private var customEnd = Date()
-    @State private var showsCustomPicker = false
-    @State private var selectedDay: DailyCount?
     let onBack: () -> Void
     let onClose: () -> Void
+    var returnTitle = "返回工具箱"
+    var initialMetric: StatisticsMetric = .focus
+    @State private var period: StatisticsPeriod = .today
+    @State private var metric: StatisticsMetric = .focus
+    @State private var customStart = Calendar.current.date(byAdding: .day, value: -6, to: .now) ?? .now
+    @State private var customEnd = Date()
+    @State private var showsDates = false
+    @State private var expandedRecord: UUID?
 
     var body: some View {
-        ZStack {
-            PangpangPanelBackground()
-                .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
-                .padding(.horizontal, 10)
-                .padding(.top, 10)
-                .padding(.bottom, 18)
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Button(action: onBack) { Image(systemName: "chevron.left") }
-                        .buttonStyle(.plain).foregroundStyle(.secondary)
-                        .frame(width: 26, height: 26)
-                        .background(.white.opacity(0.58), in: Circle())
-                    Text("数据详情").font(.system(size: 17, weight: .bold, design: .rounded))
-                    Spacer()
-                    Button(action: onClose) { Image(systemName: "xmark") }
-                        .buttonStyle(.plain).foregroundStyle(.secondary)
-                        .frame(width: 26, height: 26)
-                        .background(.white.opacity(0.58), in: Circle())
-                }
-                ScrollView(showsIndicators: false) {
-                    LazyVStack(alignment: .leading, spacing: 15) {
-                        pickerRow
-                        if period == .custom { customDatePickers }
-                        summaryCards
-                        trendSection
-                        detailsSection
-                    }
-                    .padding(.bottom, 4)
-                }
-            }
-            .padding(.horizontal, 33)
-            .padding(.top, 33)
-            .padding(.bottom, 41)
-        }
-        .frame(width: 490, height: 600, alignment: .topLeading)
-        .sheet(item: $selectedDay) { day in
-            DailyDetailSheet(
-                day: day.date,
-                focusDates: focusDates,
-                meditationDates: meditationDates,
-                moodEntries: moodEntries
-            )
-        }
-    }
-
-    private var pickerRow: some View {
-        HStack(spacing: 8) {
-            Picker("时间范围", selection: $period) {
-                ForEach(StatisticsPeriod.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .onChange(of: period) { _, newValue in
-                if newValue == .custom { showsCustomPicker = true }
-            }
-            Button { showsCustomPicker = true } label: { Image(systemName: "calendar") }
-                .buttonStyle(.bordered)
-                .popover(isPresented: $showsCustomPicker, arrowEdge: .top) { customDatePickers }
-        }
-    }
-
-    private var customDatePickers: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("选择日期范围").font(.system(size: 13, weight: .semibold))
-            DatePicker("开始", selection: $customStart, in: ...customEnd, displayedComponents: .date)
-            DatePicker("结束", selection: $customEnd, in: customStart..., displayedComponents: .date)
-            Button("完成") { period = .custom; showsCustomPicker = false }
-                .buttonStyle(.borderedProminent)
-        }
-        .font(.system(size: 12))
-        .padding(14)
-        .frame(width: 250)
-    }
-
-    private var summaryCards: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(rangeTitle).font(.system(size: 13, weight: .semibold))
-            HStack(spacing: 8) {
-                summaryCard(metric: .focus, title: "番茄钟", value: "\(focusDates.count)", detail: "\(focusDates.count * 25) 分钟", tint: .red)
-                summaryCard(metric: .meditation, title: "冥想", value: "\(meditationDates.count)", detail: "\(meditationDates.count) 分钟", tint: .blue)
-                summaryCard(metric: .mood, title: "情绪", value: "\(moodEntries.count)", detail: moodSummary, tint: .orange)
-            }
-        }
-    }
-
-    private func summaryCard(metric cardMetric: StatisticsMetric, title: String, value: String, detail: String, tint: Color) -> some View {
-        Button { metric = metric == cardMetric ? .all : cardMetric } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: 11)).foregroundStyle(.secondary)
-                Text(value).font(.system(size: 24, weight: .bold, design: .rounded)).foregroundStyle(tint)
-                Text(detail).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(10)
-            .background(tint.opacity(metric == cardMetric ? 0.18 : 0.10), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(metric == cardMetric ? tint.opacity(0.55) : .clear, lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var trendSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("趋势").font(.system(size: 13, weight: .semibold))
-            if selectedDailyCounts.allSatisfy({ $0.count == 0 }) {
-                Text("这段时间还没有完成记录。")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 100, alignment: .center)
-                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
-            } else {
-                SimpleTrendChart(values: selectedDailyCounts, tint: trendTint)
-                    .frame(height: 126)
-            }
-        }
-    }
-
-    private var detailsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("每日明细").font(.system(size: 13, weight: .semibold))
-            ForEach(selectedDailyCounts) { day in
-                Button { selectedDay = day } label: {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Button(action: onBack) { Label(returnTitle, systemImage: "chevron.left") }
+                    .buttonStyle(.plain).font(.system(size: 15, weight: .medium))
+                    .accessibilityIdentifier("statistics.back")
+                Spacer()
+                Picker("时间范围", selection: Binding(get: { period }, set: { value in
+                    period = value
+                    showsDates = value == .custom
+                })) {
+                    ForEach(StatisticsPeriod.allCases) { Text($0.rawValue).tag($0) }
+                }.pickerStyle(.segmented).labelsHidden().frame(width: 250)
+                Button { showsDates = true } label: { Image(systemName: "calendar").frame(width: 28, height: 30) }
+                    .buttonStyle(.plain).accessibilityLabel("选择日期范围")
+            }.frame(height: 36)
+                .overlay { Text("数据统计").font(.system(size: 20, weight: .bold)).offset(x: -18).allowsHitTesting(false) }
+            Text(rangeTitle).font(.system(size: 21, weight: .semibold)).padding(.top, 18)
+            overview.padding(.top, 16).frame(height: 124)
+            Divider().padding(.vertical, 18)
+            HStack(alignment: .top, spacing: 22) {
+                VStack(alignment: .leading, spacing: 16) {
                     HStack {
-                        Text(dateLabel(day.date)).font(.system(size: 12))
+                        Text(chartTitle).font(.system(size: 19, weight: .semibold))
                         Spacer()
-                        Text(detailText(for: day)).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
-                        Image(systemName: "chevron.right").font(.system(size: 9)).foregroundStyle(.tertiary)
+                        Text(metric == .focus ? "分钟" : "次数").font(.system(size: 12)).foregroundStyle(FocusTheme.secondary)
                     }
-                    .padding(.vertical, 5)
+                    distributionChart.frame(height: 166)
+                    Text(chartCaption).font(.system(size: 11)).foregroundStyle(FocusTheme.secondary)
+                }.frame(width: 400)
+                Divider()
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text(recordsTitle).font(.system(size: 19, weight: .semibold))
+                        Spacer()
+                        Text(recordsCount).font(.system(size: 12)).foregroundStyle(FocusTheme.secondary)
+                    }
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) { recordRows }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }.frame(maxWidth: .infinity)
+            }.frame(maxHeight: .infinity)
+            HStack(spacing: 12) {
+                FocusCat(size: 58).accessibilityHidden(true)
+                Text(metric == .mood ? "记下每一种感受，慢慢了解自己。" : metric == .meditation ? "给自己的每一分钟，都有记录。" : focusRecords.isEmpty ? "留一点时间，给重要的事。" : "每一段专注，都有记录。")
+                    .font(.system(size: 12)).foregroundStyle(FocusTheme.secondary)
+                Spacer()
+            }.frame(height: 58)
+        }.padding(.horizontal, 32).padding(.top, 36).padding(.bottom, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(FocusTheme.background).foregroundStyle(FocusTheme.ink).ignoresSafeArea()
+            .onAppear { metric = initialMetric }
+            .overlay(alignment: .topTrailing) {
+                if showsDates {
+                    dateEditor.background { FocusTheme.background.clipShape(RoundedRectangle(cornerRadius: 18)) }
+                        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+                        .padding(.top, 80).padding(.trailing, 32)
                 }
-                .buttonStyle(.plain)
             }
-            if metric == .mood || metric == .all, !moodEntries.isEmpty {
-                Divider().padding(.vertical, 3)
-                Text("情绪记录").font(.system(size: 12, weight: .semibold))
-                ForEach(moodEntries.prefix(12)) { entry in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(entry.emoji) \(entry.name) · \(dateTimeLabel(entry.createdAt))").font(.system(size: 12))
-                        if let note = entry.note { Text(note).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2) }
+    }
+
+    private var overview: some View {
+        HStack(spacing: 18) {
+            Button { metric = .focus } label: {
+                HStack(spacing: 22) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(period == .today ? "今日专注" : "专注时长").font(.system(size: 14)).foregroundStyle(FocusTheme.secondary)
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(focusSeconds > 0 && focusSeconds < 60 ? "<1" : "\(Int(focusSeconds / 60))")
+                                .font(.system(size: 56, weight: .semibold, design: .rounded)).foregroundStyle(FocusTheme.accent)
+                            Text("分钟").font(.system(size: 19, weight: .semibold))
+                        }
+                        Text("\(focusRecords.filter(\.completed).count) 轮完成").font(.system(size: 15, weight: .medium))
                     }
-                    .padding(.vertical, 3)
+                    HStack(spacing: 2) {
+                        ForEach(0..<min(2, focusRecords.filter(\.completed).count), id: \.self) { _ in FocusPaw(size: 58) }
+                    }.accessibilityHidden(true)
+                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityLabel("查看专注统计")
+            Divider().frame(height: 100)
+            metricLink(.meditation, title: period == .today ? "今日冥想" : "冥想", count: meditationDates.count,
+                symbol: "leaf.fill", color: Color(red: 0.43, green: 0.54, blue: 0.30))
+            Divider().frame(height: 100)
+            metricLink(.mood, title: period == .today ? "今日情绪" : "情绪", count: moods.count,
+                symbol: "heart.fill", color: Color(red: 0.92, green: 0.47, blue: 0.41))
+        }
+    }
+    private func metricLink(_ value: StatisticsMetric, title: String, count: Int, symbol: String, color: Color) -> some View {
+        Button { metric = value; expandedRecord = nil } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: symbol).font(.system(size: 25)).foregroundStyle(color)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(title).font(.system(size: 14)).foregroundStyle(FocusTheme.secondary)
+                    HStack(spacing: 5) {
+                        Text("\(count)").font(.system(size: 25, weight: .semibold, design: .rounded))
+                        Text("次").font(.system(size: 14))
+                        Image(systemName: "chevron.right").font(.system(size: 11))
+                    }
+                    Text(value == .meditation ? "放松身心" : "记录此刻的心情").font(.system(size: 11)).foregroundStyle(FocusTheme.secondary)
+                }
+            }.padding(8).background(metric == value ? color.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 12))
+        }.buttonStyle(.plain).frame(width: 158)
+    }
+
+    private var distributionChart: some View {
+        Chart(samples) { sample in
+            BarMark(x: .value("时间", sample.date, unit: chartUnit), y: .value(metric == .focus ? "分钟" : "次数", sample.value), width: .ratio(0.55))
+                .foregroundStyle(chartColor).cornerRadius(3)
+                .annotation(position: .top) {
+                    if sample.value > 0 && samples.count <= 31 {
+                        Text(sample.value.formatted(.number.precision(.fractionLength(0...1))))
+                            .font(.system(size: 9)).foregroundStyle(FocusTheme.secondary)
+                    }
+                }
+        }
+        .chartYScale(domain: 0...chartMaximum)
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: period == .today ? 6 : 5)) { value in
+                AxisValueLabel {
+                    if let date = value.as(Date.self) { Text(axisLabel(date)).font(.system(size: 10)) }
                 }
             }
         }
-    }
-
-    private var range: DateInterval {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: .now)
-        switch period {
-        case .today: return DateInterval(start: today, end: calendar.date(byAdding: .day, value: 1, to: today) ?? .now)
-        case .week: return DateInterval(start: calendar.date(byAdding: .day, value: -6, to: today) ?? today, end: calendar.date(byAdding: .day, value: 1, to: today) ?? .now)
-        case .month: return DateInterval(start: calendar.date(byAdding: .day, value: -29, to: today) ?? today, end: calendar.date(byAdding: .day, value: 1, to: today) ?? .now)
-        case .custom:
-            let start = calendar.startOfDay(for: customStart)
-            let end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: customEnd)) ?? customEnd
-            return DateInterval(start: start, end: end)
+        .chartYAxis {
+            if metric == .focus {
+                AxisMarks(position: .leading, values: .automatic(desiredCount: 4))
+            } else {
+                AxisMarks(position: .leading, values: Array(stride(from: 0.0, through: chartMaximum, by: max(1, ceil(chartMaximum / 4)))))
+            }
         }
+        .overlay {
+            if samples.allSatisfy({ $0.value == 0 }) {
+                Text("这段时间还没有\(metric == .focus ? "专注" : metric == .meditation ? "冥想" : "情绪")记录。")
+                    .font(.system(size: 13)).foregroundStyle(FocusTheme.secondary)
+                    .padding(14).background(.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+        .accessibilityLabel("\(chartTitle)，\(rangeTitle)")
     }
 
-    private var focusDates: [Date] { pomodoro.focusCompletionDates.filter(range.contains) }
-    private var meditationDates: [Date] { wellbeing.meditationCompletionDates.filter(range.contains) }
-    private var moodEntries: [MoodEntry] { wellbeing.moodEntries.filter { range.contains($0.createdAt) } }
-    private var moodSummary: String {
-        guard let mostCommon = Dictionary(grouping: moodEntries, by: \.name).max(by: { $0.value.count < $1.value.count })?.key else { return "暂无记录" }
-        return "最多：\(mostCommon)"
-    }
-    private var rangeTitle: String { period == .today ? "今天" : "\(dateLabel(range.start)) – \(dateLabel(Calendar.current.date(byAdding: .second, value: -1, to: range.end) ?? range.end))" }
-    private var selectedDailyCounts: [DailyCount] {
-        let dates: [Date]
+    @ViewBuilder private var recordRows: some View {
         switch metric {
-        case .focus: dates = focusDates
-        case .meditation: dates = meditationDates
-        case .mood: dates = moodEntries.map(\.createdAt)
-        case .all: dates = focusDates + meditationDates + moodEntries.map(\.createdAt)
+        case .focus:
+            if focusRecords.isEmpty { emptyRecords }
+            ForEach(focusRecords.sorted { $0.endedAt > $1.endedAt }) { record in
+                Button { expandedRecord = expandedRecord == record.id ? nil : record.id } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: record.completed ? "circle.fill" : "circle.dashed")
+                            .font(.system(size: 10)).foregroundStyle(FocusTheme.accent)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(record.task.isEmpty ? record.category : record.task).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                            Text("\(recordTime(record.startedAt)) → \(time(record.endedAt))\(record.completed ? "" : " · 提前结束")")
+                                .font(.system(size: 11)).foregroundStyle(FocusTheme.secondary)
+                        }
+                        Spacer(minLength: 2)
+                        Text(duration(record.seconds)).font(.system(size: 12)).fixedSize()
+                        Image(systemName: expandedRecord == record.id ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10)).foregroundStyle(FocusTheme.secondary)
+                    }.padding(.vertical, 14).contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                if expandedRecord == record.id {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("类别：\(record.category)")
+                        Text(record.note.isEmpty ? "还没有成果笔记。" : record.note)
+                        if record.estimated { Text("旧记录的时长为估算值。") }
+                    }.font(.system(size: 12)).foregroundStyle(FocusTheme.secondary).padding(.bottom, 12)
+                }
+                Divider()
+            }
+        case .meditation:
+            if meditationDates.isEmpty { emptyRecords }
+            ForEach(Array(meditationDates.sorted(by: >).enumerated()), id: \.offset) { _, date in
+                HStack {
+                    Label("1 分钟冥想", systemImage: "leaf.fill").font(.system(size: 14))
+                    Spacer()
+                    Text(recordTime(date)).font(.system(size: 12)).foregroundStyle(FocusTheme.secondary)
+                }.padding(.vertical, 16)
+                Divider()
+            }
+        case .mood:
+            if moods.isEmpty { emptyRecords }
+            ForEach(moods.sorted { $0.createdAt > $1.createdAt }) { entry in
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("\(entry.emoji) \(entry.name)").font(.system(size: 14, weight: .medium))
+                        Spacer()
+                        Text(recordTime(entry.createdAt)).font(.system(size: 11)).foregroundStyle(FocusTheme.secondary)
+                    }
+                    if let note = entry.note, !note.isEmpty { Text(note).font(.system(size: 13)).foregroundStyle(FocusTheme.secondary) }
+                }.padding(.vertical, 14)
+                Divider()
+            }
         }
-        return daysInRange.map { day in DailyCount(date: day, count: dates.filter { Calendar.current.isDate($0, inSameDayAs: day) }.count) }.reversed()
     }
-    private var daysInRange: [Date] {
-        let calendar = Calendar.current
-        var days: [Date] = []
-        var day = calendar.startOfDay(for: range.start)
-        while day < range.end && days.count < 366 {
-            days.append(day)
-            day = calendar.date(byAdding: .day, value: 1, to: day) ?? range.end
-        }
-        return days
+    private var emptyRecords: some View {
+        Text("暂无记录，完成后会显示在这里。")
+            .font(.system(size: 13)).foregroundStyle(FocusTheme.secondary).padding(.vertical, 30)
     }
-    private var trendTint: Color { metric == .focus ? .red : metric == .meditation ? .blue : metric == .mood ? .orange : .purple }
-    private func detailText(for day: DailyCount) -> String {
-        if metric == .focus { return "\(day.count) 轮" }
-        if metric == .meditation { return "\(day.count) 次" }
-        if metric == .mood { return "\(day.count) 条" }
-        let calendar = Calendar.current
-        let focus = focusDates.filter { calendar.isDate($0, inSameDayAs: day.date) }.count
-        let meditation = meditationDates.filter { calendar.isDate($0, inSameDayAs: day.date) }.count
-        let mood = moodEntries.filter { calendar.isDate($0.createdAt, inSameDayAs: day.date) }.count
-        return "番茄 \(focus) · 冥想 \(meditation) · 情绪 \(mood)"
-    }
-    private func dateLabel(_ date: Date) -> String {
-        if Calendar.current.isDateInToday(date) { return "今天" }
-        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "zh_CN"); formatter.dateFormat = "M 月 d 日"
-        return formatter.string(from: date)
-    }
-    private func dateTimeLabel(_ date: Date) -> String {
-        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "zh_CN"); formatter.dateFormat = "M 月 d 日 HH:mm"
-        return formatter.string(from: date)
-    }
-}
 
-private struct DailyDetailSheet: View {
-    let day: Date
-    let focusDates: [Date]
-    let meditationDates: [Date]
-    let moodEntries: [MoodEntry]
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
+    private var dateEditor: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text(title).font(.system(size: 17, weight: .semibold))
+                Text("选择日期范围").font(.system(size: 16, weight: .semibold))
                 Spacer()
-                Button(action: { dismiss() }) { Image(systemName: "xmark") }.buttonStyle(.plain)
+                Button { showsDates = false } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }
+                    .buttonStyle(.plain).accessibilityLabel("关闭日期选择")
             }
-            detailRow(icon: "timer", title: "番茄钟", value: "完成 \(events(focusDates).count) 轮")
-            detailRow(icon: "wind", title: "冥想", value: "完成 \(events(meditationDates).count) 次")
-            if !entries.isEmpty {
-                Divider()
-                Text("情绪记录").font(.system(size: 13, weight: .semibold))
-                ForEach(entries) { entry in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(entry.emoji) \(entry.name) · \(time(entry.createdAt))").font(.system(size: 12))
-                        if let note = entry.note { Text(note).font(.system(size: 12)).foregroundStyle(.secondary) }
-                    }
-                }
-            }
-            Spacer()
+            DatePicker("开始", selection: $customStart, in: ...customEnd, displayedComponents: .date)
+            DatePicker("结束", selection: $customEnd, in: customStart..., displayedComponents: .date)
+            Button("查看") { period = .custom; showsDates = false }.buttonStyle(.borderedProminent).tint(FocusTheme.accent)
+        }.padding(22).frame(width: 290).environment(\.colorScheme, .light)
+    }
+    private var range: DateInterval {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let start: Date
+        let end: Date
+        switch period {
+        case .today: start = today; end = calendar.date(byAdding: .day, value: 1, to: today)!
+        case .week: start = calendar.date(byAdding: .day, value: -6, to: today)!; end = calendar.date(byAdding: .day, value: 1, to: today)!
+        case .month: start = calendar.date(byAdding: .day, value: -29, to: today)!; end = calendar.date(byAdding: .day, value: 1, to: today)!
+        case .custom: start = calendar.startOfDay(for: min(customStart, customEnd)); end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: max(customStart, customEnd)))!
         }
-        .padding(18).frame(width: 330, height: 300, alignment: .topLeading)
+        return DateInterval(start: start, end: end)
     }
-
-    private var entries: [MoodEntry] { moodEntries.filter { Calendar.current.isDate($0.createdAt, inSameDayAs: day) } }
-    private func events(_ dates: [Date]) -> [Date] { dates.filter { Calendar.current.isDate($0, inSameDayAs: day) } }
-    private func detailRow(icon: String, title: String, value: String) -> some View {
-        HStack { Image(systemName: icon).foregroundStyle(.secondary).frame(width: 20); Text(title); Spacer(); Text(value).foregroundStyle(.secondary) }
-            .font(.system(size: 13)).padding(10).background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
-    }
-    private var title: String {
-        if Calendar.current.isDateInToday(day) { return "今天" }
-        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "zh_CN"); formatter.dateFormat = "M 月 d 日"
-        return formatter.string(from: day)
-    }
-    private func time(_ date: Date) -> String { let formatter = DateFormatter(); formatter.dateFormat = "HH:mm"; return formatter.string(from: date) }
-}
-
-private struct SimpleTrendChart: View {
-    let values: [DailyCount]
-    let tint: Color
-    private var maxCount: CGFloat { CGFloat(max(values.map(\.count).max() ?? 1, 1)) }
-
-    var body: some View {
-        GeometryReader { geometry in
-            HStack(alignment: .bottom, spacing: max(3, geometry.size.width / CGFloat(max(values.count, 1)) * 0.18)) {
-                ForEach(values) { value in
-                    VStack(spacing: 3) {
-                        Text(value.count == 0 ? "" : "\(value.count)").font(.system(size: 9)).foregroundStyle(.secondary)
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(tint.opacity(value.count == 0 ? 0.18 : 0.80))
-                            .frame(height: max(4, (geometry.size.height - 28) * CGFloat(value.count) / maxCount))
-                        Text(shortDate(value.date)).font(.system(size: 8)).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                }
-            }
+    private func contains(_ date: Date) -> Bool { date >= range.start && date < range.end }
+    private var focusRecords: [FocusRecord] { pomodoro.records.filter { contains($0.endedAt) } }
+    private var focusSeconds: Double { focusRecords.reduce(0) { $0 + max(0, $1.seconds) } }
+    private var meditationDates: [Date] { wellbeing.meditationCompletionDates.filter(contains) }
+    private var moods: [MoodEntry] { wellbeing.moodEntries.filter { contains($0.createdAt) } }
+    private var samples: [StatisticsSample] {
+        let values: [(Date, Double)]
+        switch metric {
+        case .focus: values = focusRecords.map { ($0.endedAt, max(0, $0.seconds) / 60) }
+        case .meditation: values = meditationDates.map { ($0, 1) }
+        case .mood: values = moods.map { ($0.createdAt, 1) }
         }
-        .padding(9)
-        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
+        return statisticsSamples(values: values, range: range, hourly: period == .today)
     }
-
-    private func shortDate(_ date: Date) -> String {
-        let formatter = DateFormatter(); formatter.dateFormat = "d"
-        return formatter.string(from: date)
+    private var chartTitle: String { metric == .focus ? (period == .today ? "专注分布" : "专注趋势") : metric == .meditation ? "冥想趋势" : "情绪记录趋势" }
+    private var chartUnit: Calendar.Component { period == .today ? .hour : range.duration > 62 * 86400 ? .month : .day }
+    private var chartMaximum: Double {
+        let maximum = (samples.map(\.value).max() ?? 0) * 1.2
+        return max(1, metric == .focus ? maximum : ceil(maximum))
     }
+    private var chartColor: Color { metric == .focus ? FocusTheme.accent : metric == .meditation ? Color(red: 0.43, green: 0.54, blue: 0.30) : Color(red: 0.92, green: 0.47, blue: 0.41) }
+    private var chartCaption: String { metric == .focus ? "按结束时间归类，含提前结束的有效专注时长。" : "按记录时间统计，空白日期为 0。" }
+    private var recordsTitle: String { metric == .focus ? "专注记录" : metric == .meditation ? "冥想记录" : "情绪记录" }
+    private var recordsCount: String { "共 \(metric == .focus ? focusRecords.count : metric == .meditation ? meditationDates.count : moods.count) 条" }
+    private var rangeTitle: String { period == .today ? "\(dateLabel(range.start))  今天" : "\(dateLabel(range.start)) 至 \(dateLabel(range.end.addingTimeInterval(-1)))" }
+    private func dateLabel(_ date: Date) -> String { let f = DateFormatter(); f.locale = Locale(identifier: "zh_CN"); f.dateFormat = "M月d日"; return f.string(from: date) }
+    private func time(_ date: Date) -> String { let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: date) }
+    private func recordTime(_ date: Date) -> String { period == .today ? time(date) : "\(dateLabel(date)) \(time(date))" }
+    private func axisLabel(_ date: Date) -> String { let f = DateFormatter(); f.dateFormat = period == .today ? "H" : range.duration > 62 * 86400 ? "yy/M" : "M/d"; return f.string(from: date) }
+    private func duration(_ seconds: Double) -> String { seconds > 0 && seconds < 60 ? "不足 1 分钟" : "\(Int(seconds / 60)) 分钟" }
 }

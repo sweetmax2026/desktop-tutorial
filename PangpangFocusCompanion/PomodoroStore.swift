@@ -10,6 +10,31 @@ struct BubbleMessage {
     let action: BubbleAction
 }
 
+struct FocusRecord: Codable, Identifiable {
+    let id: UUID
+    let startedAt: Date
+    let endedAt: Date
+    let seconds: TimeInterval
+    let category: String
+    let task: String
+    let completed: Bool
+    let estimated: Bool
+    var note: String
+}
+
+struct FocusSettings: Codable, Equatable {
+    var focusMinutes = 25
+    var shortBreakMinutes = 5
+    var longBreakMinutes = 10
+    var longBreakInterval = 4
+    var validated: FocusSettings {
+        FocusSettings(focusMinutes: min(180, max(1, focusMinutes)),
+            shortBreakMinutes: min(60, max(1, shortBreakMinutes)),
+            longBreakMinutes: min(120, max(1, longBreakMinutes)),
+            longBreakInterval: min(12, max(1, longBreakInterval)))
+    }
+}
+
 @MainActor
 final class PomodoroStore: ObservableObject {
     @Published private(set) var phase: PomodoroPhase = .idle
@@ -18,6 +43,26 @@ final class PomodoroStore: ObservableObject {
     @Published private(set) var endDate: Date?
     @Published private(set) var pausedRemaining: TimeInterval?
     @Published private var currentTime = Date()
+    @Published private(set) var records: [FocusRecord] = []
+    @Published private(set) var activeSessionID: UUID?
+    @Published var draftTask = ""
+    @Published var draftCategory = "专注"
+    @Published private(set) var activeTask = ""
+    @Published private(set) var activeCategory = "专注"
+    @Published private(set) var settings = FocusSettings()
+    private var activeDuration: TimeInterval = 1500
+    private var focusesSinceLongBreak = 0
+    @Published var showsMiniCard: Bool {
+        didSet {
+            defaults.set(showsMiniCard, forKey: "pangpang.focus.miniCard")
+            onPresentationChange?()
+        }
+    }
+    private var startedAt: Date?
+    private let defaults: UserDefaults
+    private let now: () -> Date
+    var onPresentationChange: (() -> Void)?
+    var onFocusFinished: ((FocusRecord) -> Void)?
 
     var onBubble: ((BubbleMessage) -> Void)?
     var onNotification: ((String, String) -> Void)?
@@ -26,17 +71,40 @@ final class PomodoroStore: ObservableObject {
     private var timer: Timer?
     private var phaseBeforePause: PomodoroPhase?
     private let defaultsKey = "pangpang.pomodoro.snapshot"
-    private let focusDuration: TimeInterval = 25 * 60
-    private let shortBreakDuration: TimeInterval = 5 * 60
-    private let longBreakDuration: TimeInterval = 10 * 60
+    private var focusDuration: TimeInterval { TimeInterval(settings.focusMinutes * 60) }
+    private var shortBreakDuration: TimeInterval { TimeInterval(settings.shortBreakMinutes * 60) }
+    private var longBreakDuration: TimeInterval { TimeInterval(settings.longBreakMinutes * 60) }
+    private let settingsKey = "pangpang.focus.settings.v1"
 
-    init() { restore(); startTimer() }
+    init(defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init, schedulesTimer: Bool = true) {
+        self.defaults = defaults
+        self.now = now
+        showsMiniCard = defaults.object(forKey: "pangpang.focus.miniCard") as? Bool ?? true
+        currentTime = now()
+        if let data = defaults.data(forKey: settingsKey), let saved = try? JSONDecoder().decode(FocusSettings.self, from: data) {
+            settings = saved.validated
+        }
+        restore()
+        if schedulesTimer { startTimer() }
+    }
     deinit { timer?.invalidate() }
 
     var isPaused: Bool { phase == .paused }
+    var isRestSession: Bool {
+        phase == .shortBreak || phase == .longBreak ||
+        (phase == .paused && (phaseBeforePause == .shortBreak || phaseBeforePause == .longBreak))
+    }
     var canPause: Bool { phase == .focus || phase == .shortBreak || phase == .longBreak || phase == .paused }
     var canEnd: Bool { canPause }
-    var primaryActionTitle: String { phase == .readyForFocus ? "开始下一轮专注" : "开始 25 分钟专注" }
+    var primaryActionTitle: String { phase == .readyForFocus ? "开始下一轮专注" : "开始 \(settings.focusMinutes) 分钟专注" }
+    var configuredFocusText: String { String(format: "%02d:00", settings.focusMinutes) }
+    func updateSettings(_ value: FocusSettings) {
+        settings = value.validated
+        if let data = try? JSONEncoder().encode(settings) { defaults.set(data, forKey: settingsKey) }
+        // The active phase keeps its deadline and original duration, including when paused.
+        onPresentationChange?()
+        onStateChange?()
+    }
     var statusText: String {
         switch phase {
         case .idle: return "pangpang · 未开始"
@@ -51,8 +119,8 @@ final class PomodoroStore: ObservableObject {
         switch phase {
         case .idle: return "还没开始"
         case .focus: return "专注中"
-        case .shortBreak: return "5 分钟休息中"
-        case .longBreak: return "10 分钟长休息中"
+        case .shortBreak: return "\(Int(activeDuration / 60)) 分钟休息中"
+        case .longBreak: return "\(Int(activeDuration / 60)) 分钟长休息中"
         case .readyForFocus: return "准备下一轮"
         case .paused: return "已暂停"
         }
@@ -60,6 +128,20 @@ final class PomodoroStore: ObservableObject {
 
     var focusCountToday: Int { focusCompletionDates.filter { Calendar.current.isDateInToday($0) }.count }
     var focusDailyCounts: [DailyCount] { dailyCounts(for: focusCompletionDates) }
+    var todayRecords: [FocusRecord] { records.filter { Calendar.current.isDateInToday($0.endedAt) } }
+    var todayMinutes: Int { Int(todayRecords.reduce(0) { $0 + $1.seconds } / 60) }
+    var latestCompleted: FocusRecord? { records.last(where: { $0.completed }) }
+    var progress: Double {
+        let duration = activeDuration
+        let remaining = pausedRemaining ?? endDate.map { max(0, $0.timeIntervalSince(currentTime)) } ?? duration
+        return min(1, max(0, 1 - remaining / duration))
+    }
+
+    func updateNote(id: UUID, note: String) {
+        guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+        records[index].note = String(note.prefix(100))
+        persist()
+    }
 
     func remainingText(now: Date? = nil) -> String? {
         let now = now ?? currentTime
@@ -69,7 +151,14 @@ final class PomodoroStore: ObservableObject {
     }
 
     func startFocus() {
-        phase = .focus; pausedRemaining = nil; endDate = Date().addingTimeInterval(focusDuration)
+        guard phase == .idle || phase == .readyForFocus else { return }
+        currentTime = now()
+        startedAt = currentTime
+        activeSessionID = UUID()
+        activeTask = String(draftTask.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
+        activeCategory = draftCategory
+        activeDuration = focusDuration
+        phase = .focus; pausedRemaining = nil; endDate = now().addingTimeInterval(focusDuration)
         announceStateChanged()
     }
 
@@ -77,12 +166,12 @@ final class PomodoroStore: ObservableObject {
         if phase == .paused {
             guard let pausedRemaining else { return }
             phase = phaseBeforePause ?? .focus
-            endDate = Date().addingTimeInterval(pausedRemaining)
+            endDate = now().addingTimeInterval(pausedRemaining)
             self.pausedRemaining = nil
             phaseBeforePause = nil
         } else if let endDate {
             phaseBeforePause = phase
-            pausedRemaining = max(0, endDate.timeIntervalSinceNow)
+            pausedRemaining = max(0, endDate.timeIntervalSince(now()))
             self.endDate = nil
             phase = .paused
         }
@@ -90,22 +179,39 @@ final class PomodoroStore: ObservableObject {
     }
 
     func endCurrentSession() {
+        if phase == .focus || (phase == .paused && phaseBeforePause == .focus) {
+            let remaining = pausedRemaining ?? endDate.map { max(0, $0.timeIntervalSince(now())) } ?? activeDuration
+            if let startedAt, let activeSessionID, activeDuration - remaining >= 1 {
+                records.append(FocusRecord(id: activeSessionID, startedAt: startedAt, endedAt: now(),
+                    seconds: min(activeDuration, max(0, activeDuration - remaining)), category: activeCategory,
+                    task: activeTask, completed: false, estimated: false, note: ""))
+            }
+        }
+        activeSessionID = nil; startedAt = nil
         phase = .idle; endDate = nil; pausedRemaining = nil; phaseBeforePause = nil
         announceStateChanged()
     }
 
     func refreshForCurrentTime() {
-        currentTime = Date()
+        currentTime = now()
         guard let endDate, endDate <= currentTime else { return }
         switch phase {
         case .focus:
+            let record = FocusRecord(id: activeSessionID ?? UUID(), startedAt: startedAt ?? endDate.addingTimeInterval(-activeDuration),
+                endedAt: endDate, seconds: activeDuration, category: activeCategory, task: activeTask,
+                completed: true, estimated: startedAt == nil, note: "")
+            records.append(record)
+            activeSessionID = nil; startedAt = nil
             completedFocuses += 1
-            focusCompletionDates.append(currentTime)
+            focusCompletionDates.append(endDate)
             if focusCompletionDates.count > 365 { focusCompletionDates.removeFirst(focusCompletionDates.count - 365) }
-            let longBreak = completedFocuses % 4 == 0
+            focusesSinceLongBreak += 1
+            let longBreak = focusesSinceLongBreak >= settings.longBreakInterval
+            if longBreak { focusesSinceLongBreak = 0 }
             phase = longBreak ? .longBreak : .shortBreak
-            self.endDate = Date().addingTimeInterval(longBreak ? longBreakDuration : shortBreakDuration)
-            onBubble?(BubbleMessage(text: "Take a break.", actionTitle: "好", action: .dismiss))
+            activeDuration = longBreak ? longBreakDuration : shortBreakDuration
+            self.endDate = now().addingTimeInterval(activeDuration)
+            onFocusFinished?(record)
             onNotification?("pangpang", "Take a break.")
         case .shortBreak, .longBreak:
             phase = .readyForFocus; self.endDate = nil
@@ -118,15 +224,26 @@ final class PomodoroStore: ObservableObject {
     }
 
     func persist() {
-        let snapshot = Snapshot(phase: phase, completedFocuses: completedFocuses, focusCompletionDates: focusCompletionDates, endDate: endDate, pausedRemaining: pausedRemaining, phaseBeforePause: phaseBeforePause)
+        let snapshot = Snapshot(phase: phase, completedFocuses: completedFocuses, focusCompletionDates: focusCompletionDates, endDate: endDate, pausedRemaining: pausedRemaining, phaseBeforePause: phaseBeforePause, records: records, startedAt: startedAt, activeSessionID: activeSessionID, activeTask: activeTask, activeCategory: activeCategory, activeDuration: activeDuration, focusesSinceLongBreak: focusesSinceLongBreak)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
+        defaults.set(data, forKey: defaultsKey)
     }
 
     private func restore() {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey), let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
+        guard let data = defaults.data(forKey: defaultsKey), let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
         phase = snapshot.phase; completedFocuses = snapshot.completedFocuses; focusCompletionDates = snapshot.focusCompletionDates ?? []; endDate = snapshot.endDate
         pausedRemaining = snapshot.pausedRemaining; phaseBeforePause = snapshot.phaseBeforePause
+        records = snapshot.records ?? focusCompletionDates.map {
+            FocusRecord(id: UUID(), startedAt: $0.addingTimeInterval(-1500), endedAt: $0,
+                seconds: 1500, category: "专注", task: "", completed: true, estimated: true, note: "")
+        }
+        startedAt = snapshot.startedAt
+        activeSessionID = snapshot.activeSessionID
+        activeTask = snapshot.activeTask ?? ""
+        activeCategory = snapshot.activeCategory ?? "专注"
+        let restoredPhase = phase == .paused ? (phaseBeforePause ?? .focus) : phase
+        activeDuration = snapshot.activeDuration ?? (restoredPhase == .longBreak ? 600 : restoredPhase == .shortBreak ? 300 : 1500)
+        focusesSinceLongBreak = snapshot.focusesSinceLongBreak ?? (completedFocuses % 4)
         refreshForCurrentTime()
     }
 
@@ -146,5 +263,12 @@ final class PomodoroStore: ObservableObject {
         let endDate: Date?
         let pausedRemaining: TimeInterval?
         let phaseBeforePause: PomodoroPhase?
+        let records: [FocusRecord]?
+        let startedAt: Date?
+        let activeSessionID: UUID?
+        let activeTask: String?
+        let activeCategory: String?
+        let activeDuration: TimeInterval?
+        let focusesSinceLongBreak: Int?
     }
 }

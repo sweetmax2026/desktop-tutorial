@@ -5,14 +5,14 @@
   <key>CFBundleDisplayName</key><string>pangpang</string>
   <key>CFBundleExecutable</key><string>PangpangDesktopPet</string>
   <key>CFBundleIdentifier</key><string>com.tiantian.pangpang-desktop-pet</string>
-  <key>CFBundleIconName</key><string>AppIcon</string>
-  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundleIconName</key><string>Pangpang</string>
+  <key>CFBundleIconFile</key><string>Pangpang</string>
   <key>CFBundleName</key><string>pangpang</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.2.0</string>
-  <key>CFBundleVersion</key><string>5</string>
+  <key>CFBundleShortVersionString</key><string>1.0.0</string>
+  <key>CFBundleVersion</key><string>20</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
-  <key>LSUIElement</key><true/>
+  <key>LSUIElement</key><false/>
   <key>NSHighResolutionCapable</key><true/>
 </dict>
 </plist>

@@ -54,7 +54,7 @@ struct FloatingPetButton: View {
     var body: some View {
         ZStack {
             Circle().fill(PangpangPalette.petBackground)
-            Image(nsImage: petImage).resizable().scaledToFit().frame(width: 56, height: 56)
+            Image(nsImage: petImage).resizable().scaledToFit().frame(width: 48, height: 48)
                 .scaleEffect(y: isBlinking ? 0.985 : 1)
         }
         .frame(width: 68, height: 68)
@@ -85,7 +85,7 @@ struct FloatingPetButton: View {
     }
 
     private var petImage: NSImage {
-        guard let url = Bundle.main.url(forResource: "pangpang", withExtension: "png"), let image = NSImage(contentsOf: url) else {
+        guard let url = Bundle.main.url(forResource: "pangpang-head-v1", withExtension: "png"), let image = NSImage(contentsOf: url) else {
             return NSImage(systemSymbolName: "cat.fill", accessibilityDescription: "pangpang") ?? NSImage()
         }
         return image
@@ -104,7 +104,7 @@ struct FloatingPetVisual: View {
     var body: some View {
         ZStack {
             Circle().fill(catGradient)
-            Image(nsImage: petImage).resizable().scaledToFit().frame(width: 56, height: 56)
+            Image(nsImage: petImage).resizable().scaledToFit().frame(width: 48, height: 48)
                 .scaleEffect(y: isBlinking ? 0.985 : 1)
         }
         .frame(width: 68, height: 68)
@@ -122,7 +122,7 @@ struct FloatingPetVisual: View {
     }
 
     private var petImage: NSImage {
-        guard let url = Bundle.main.url(forResource: "pangpang", withExtension: "png"), let image = NSImage(contentsOf: url) else {
+        guard let url = Bundle.main.url(forResource: "pangpang-head-v1", withExtension: "png"), let image = NSImage(contentsOf: url) else {
             return NSImage(systemSymbolName: "cat.fill", accessibilityDescription: "pangpang") ?? NSImage()
         }
         return image
@@ -403,7 +403,7 @@ private final class PetInteractionView: NSView {
 
     override func rightMouseDown(with event: NSEvent) {
         let menu = NSMenu()
-        let start = menu.addItem(withTitle: "开始 25 分钟专注", action: #selector(startFocus), keyEquivalent: "")
+        let start = menu.addItem(withTitle: "开始专注", action: #selector(startFocus), keyEquivalent: "")
         start.target = self
         let hide = menu.addItem(withTitle: "隐藏桌面入口", action: #selector(hidePet), keyEquivalent: "")
         hide.target = self
@@ -445,7 +445,7 @@ struct ToolboxView: View {
 
     var body: some View {
         ZStack {
-            PangpangPanelBackground()
+            FocusTheme.background.clipShape(RoundedRectangle(cornerRadius: 24))
                 .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
                 .padding(.horizontal, 10)
                 .padding(.top, 10)
@@ -500,9 +500,10 @@ struct ToolboxView: View {
         VStack(alignment: .leading, spacing: 10) {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 10) {
+                    TodayHarvestView(store: pomodoro)
                     statusCard
                     HStack(spacing: 9) {
-                        quickAction(icon: "play.fill", title: "专注", tint: .red) { if pomodoro.phase == .idle || pomodoro.phase == .readyForFocus { pomodoro.startFocus() } else { select(.pomodoro) } }
+                        quickAction(icon: "play.fill", title: "专注", tint: .red) { select(.pomodoro) }
                         quickAction(icon: "wind", title: "冥想", tint: .blue) { wellbeing.startMeditation(); select(.meditation) }
                         quickAction(icon: "face.smiling", title: "记录", tint: .orange) { select(.mood) }
                     }
@@ -593,7 +594,7 @@ struct ToolboxView: View {
             if let remaining = pomodoro.remainingText() {
                 Text(remaining).font(.system(size: 42, weight: .semibold, design: .monospaced)).foregroundStyle(.primary)
             } else {
-                Text("25 分钟专注 · 5 分钟休息 · 第 4 轮后 10 分钟").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("\(pomodoro.settings.focusMinutes) 分钟专注 · \(pomodoro.settings.shortBreakMinutes) 分钟休息 · 第 \(pomodoro.settings.longBreakInterval) 轮后 \(pomodoro.settings.longBreakMinutes) 分钟").font(.system(size: 11)).foregroundStyle(.secondary)
             }
             HStack(spacing: 9) {
                 Button(pomodoro.primaryActionTitle) { if pomodoro.phase == .idle || pomodoro.phase == .readyForFocus { pomodoro.startFocus() } }
@@ -615,9 +616,13 @@ struct ToolboxView: View {
                     .font(.system(size: 24, weight: .bold, design: .rounded))
                 Text(wellbeing.meditationRemainingText.map { "剩余 \($0)" } ?? "随时可以开始")
                     .font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(.secondary)
-                BreathingFlowerView(isActive: wellbeing.isMeditating)
+                BreathingFlowerView(
+                    isActive: wellbeing.isMeditating,
+                    sessionID: wellbeing.meditationSessionID
+                )
                 Button(wellbeing.isMeditating ? "重新开始 1 分钟" : "开始 1 分钟冥想") { wellbeing.startMeditation() }
                     .buttonStyle(.borderedProminent).tint(.blue)
+                    .help(wellbeing.isMeditating ? "从 1:00 重新计时" : "开始 1 分钟冥想")
                 Divider()
                 statsLink(todayText: "今天完成 \(wellbeing.meditationCountToday) 次")
                 Divider()
@@ -670,7 +675,7 @@ struct ToolboxView: View {
                     TextEditor(text: $moodNote)
                         .font(.system(size: 13))
                         .scrollContentBackground(.hidden)
-                        .onChange(of: moodNote) { _, newValue in
+                        .onChange(of: moodNote) { newValue in
                             // Do not rewrite each keypress: doing so interrupts spaces and IME composition.
                             if newValue.count > 100 {
                                 moodNote = String(newValue.prefix(100))
@@ -788,7 +793,7 @@ struct ToolboxView: View {
                 .background(PangpangCardBackground(tint: .purple))
             }
 
-            Text("开关可独立设置，仅在 25 分钟专注中生效；休息和暂停期间自动放行。不会强制退出或删除数据。")
+            Text("开关可独立设置，仅在专注计时中生效；休息和暂停期间自动放行。不会强制退出或删除数据。")
                 .font(.system(size: 10.5)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -833,8 +838,10 @@ struct ToolboxView: View {
     }
 }
 
-private struct BreathingFlowerView: View {
+struct BreathingFlowerView: View {
     let isActive: Bool
+    let sessionID: UUID
+    var largeStyle = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isExpanded = false
     @State private var isInhaling = true
@@ -842,11 +849,11 @@ private struct BreathingFlowerView: View {
     var body: some View {
         VStack(spacing: 4) {
             ZStack {
-                ForEach(0..<8, id: \.self) { index in
+                ForEach(0..<(largeStyle ? 6 : 8), id: \.self) { index in
                     Circle()
                         .fill(
                             LinearGradient(
-                                colors: [
+                                colors: largeStyle ? [Color(red: 0.55, green: 0.70, blue: 1).opacity(0.35), Color(red: 0.40, green: 0.53, blue: 0.97).opacity(0.38)] : [
                                     Color(red: 0.35, green: 0.72, blue: 0.98).opacity(0.82),
                                     Color(red: 0.55, green: 0.55, blue: 0.96).opacity(0.76),
                                     Color(red: 0.98, green: 0.55, blue: 0.72).opacity(0.68)
@@ -855,13 +862,13 @@ private struct BreathingFlowerView: View {
                                 endPoint: .bottomTrailing
                             )
                         )
-                        .frame(width: 52, height: 52)
-                        .offset(y: -(isExpanded ? 34 : 16))
-                        .rotationEffect(.degrees(Double(index) * 45))
+                        .frame(width: largeStyle ? 144 : 52, height: largeStyle ? 144 : 52)
+                        .offset(y: largeStyle ? -(isExpanded ? 66 : 30) : -(isExpanded ? 34 : 16))
+                        .rotationEffect(.degrees(Double(index) * (largeStyle ? 60 : 45)))
                         .opacity(isActive ? 0.88 : 0.48)
                 }
 
-                Circle()
+                if !largeStyle { Circle()
                     .fill(.white.opacity(0.72))
                     .frame(width: 42, height: 42)
                     .overlay {
@@ -869,21 +876,21 @@ private struct BreathingFlowerView: View {
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(PangpangPalette.petEdge)
                     }
-                    .shadow(color: PangpangPalette.petEdge.opacity(0.18), radius: 6)
+                    .shadow(color: PangpangPalette.petEdge.opacity(0.18), radius: 6) }
             }
-            .frame(width: 142, height: 142)
+            .frame(width: largeStyle ? 300 : 142, height: largeStyle ? 256 : 142)
 
             Text(cueText)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .font(.system(size: largeStyle ? 19 : 13, weight: .semibold, design: .rounded))
                 .foregroundStyle(PangpangPalette.ink.opacity(0.72))
                 .contentTransition(.opacity)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
-        .background(PangpangCardBackground(tint: .blue))
+        .background { if !largeStyle { PangpangCardBackground(tint: .blue) } }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(isActive ? cueText : "呼吸动画，准备开始")
-        .task(id: isActive) {
+        .task(id: "\(isActive)-\(sessionID.uuidString)") {
             guard isActive else {
                 isInhaling = true
                 withAnimation(.easeOut(duration: 0.45)) { isExpanded = false }

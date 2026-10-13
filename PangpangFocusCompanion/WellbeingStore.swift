@@ -26,16 +26,19 @@ struct MoodEntry: Codable, Identifiable {
 final class WellbeingStore: ObservableObject {
     @Published private(set) var meditationTimes: [MeditationTime]
     @Published private(set) var meditationEndDate: Date?
+    @Published private(set) var meditationSessionID = UUID()
     @Published private(set) var meditationCompletionDates: [Date]
     @Published private(set) var moodEntries: [MoodEntry]
     @Published private var currentTime = Date()
 
     var onMeditationScheduleChanged: (([MeditationTime]) -> Void)?
-    var onMeditationFinished: (() -> Void)?
+    var onMeditationReminderDue: (() -> Void)?
+    var onStateChange: (() -> Void)?
 
     private let timesKey = "pangpang.meditation.times"
     private let moodsKey = "pangpang.mood.entries"
     private let meditationCompletionsKey = "pangpang.meditation.completions"
+    private let lastMeditationReminderKey = "pangpang.meditation.lastReminderMinute"
     private var timer: Timer?
 
     init() {
@@ -52,12 +55,16 @@ final class WellbeingStore: ObservableObject {
     var meditationRemainingText: String? {
         guard let meditationEndDate else { return nil }
         let remaining = max(0, meditationEndDate.timeIntervalSince(currentTime))
-        return String(format: "00:%02d", Int(remaining.rounded(.up)))
+        let seconds = Int(remaining.rounded(.up))
+        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
 
     func startMeditation() {
-        meditationEndDate = Date().addingTimeInterval(60)
-        currentTime = Date()
+        let now = Date()
+        currentTime = now
+        meditationEndDate = now.addingTimeInterval(60)
+        meditationSessionID = UUID()
+        onStateChange?()
     }
 
     func addMeditationTime(hour: Int, minute: Int) {
@@ -105,6 +112,7 @@ final class WellbeingStore: ObservableObject {
 
     private func refreshMeditation() {
         currentTime = Date()
+        checkScheduledMeditationReminder(at: currentTime)
         guard let meditationEndDate, meditationEndDate <= currentTime else { return }
         self.meditationEndDate = nil
         meditationCompletionDates.append(currentTime)
@@ -112,6 +120,20 @@ final class WellbeingStore: ObservableObject {
         if let data = try? JSONEncoder().encode(meditationCompletionDates) {
             UserDefaults.standard.set(data, forKey: meditationCompletionsKey)
         }
-        onMeditationFinished?()
+        onStateChange?()
+    }
+
+    private func checkScheduledMeditationReminder(at date: Date) {
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        guard let hour = components.hour,
+              let minute = components.minute,
+              meditationTimes.contains(where: { $0.hour == hour && $0.minute == minute }) else { return }
+
+        let minuteKey = "\(components.year ?? 0)-\(components.month ?? 0)-\(components.day ?? 0)-\(hour)-\(minute)"
+        let defaults = UserDefaults.standard
+        guard defaults.string(forKey: lastMeditationReminderKey) != minuteKey else { return }
+        defaults.set(minuteKey, forKey: lastMeditationReminderKey)
+        onMeditationReminderDue?()
     }
 }

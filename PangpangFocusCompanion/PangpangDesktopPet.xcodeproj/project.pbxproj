@@ -1,0 +1,114 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000010 /* WellbeingPages.swift */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010; };
+		A10000000000000000000011 /* Resources/mood-calm.png */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011; };
+		A10000000000000000000012 /* Resources/mood-relaxed.png */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012; };
+		A10000000000000000000013 /* Resources/mood-neutral.png */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013; };
+		A10000000000000000000014 /* Resources/mood-sad.png */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014; };
+		A10000000000000000000015 /* Resources/mood-irritated.png */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015; };
+		A1000000000000000000000E /* BlueToolbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E; };
+		A1000000000000000000000F /* focus-paw-blue.png in Resources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F; };
+		A1000000000000000000000D /* focus-paw-stamp.png in Resources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D; };
+		A1000000000000000000000C /* FocusExperience.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C; };
+		A10000000000000000000001 /* AppBlockerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* AppBlockerStore.swift */; };
+		A10000000000000000000002 /* DailyCount.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* DailyCount.swift */; };
+		A10000000000000000000003 /* PangpangDesktopPet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* PangpangDesktopPet.swift */; };
+		A10000000000000000000004 /* PangpangViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* PangpangViews.swift */; };
+		A10000000000000000000005 /* PomodoroStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* PomodoroStore.swift */; };
+		A10000000000000000000006 /* StatisticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* StatisticsView.swift */; };
+		A10000000000000000000007 /* WellbeingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* WellbeingStore.swift */; };
+		A10000000000000000000008 /* pangpang.png in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* pangpang.png */; };
+		A10000000000000000000009 /* Pangpang.icon in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* Pangpang.icon */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A20000000000000000000010 /* WellbeingPages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellbeingPages.swift; sourceTree = "<group>"; };
+		A20000000000000000000011 /* Resources/mood-calm.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/mood-calm.png; sourceTree = "<group>"; };
+		A20000000000000000000012 /* Resources/mood-relaxed.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/mood-relaxed.png; sourceTree = "<group>"; };
+		A20000000000000000000013 /* Resources/mood-neutral.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/mood-neutral.png; sourceTree = "<group>"; };
+		A20000000000000000000014 /* Resources/mood-sad.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/mood-sad.png; sourceTree = "<group>"; };
+		A20000000000000000000015 /* Resources/mood-irritated.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/mood-irritated.png; sourceTree = "<group>"; };
+		A2000000000000000000000E /* BlueToolbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlueToolbox.swift; sourceTree = "<group>"; };
+		A2000000000000000000000F /* focus-paw-blue.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/focus-paw-blue.png; sourceTree = "<group>"; };
+		A2000000000000000000000D /* focus-paw-stamp.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/focus-paw-stamp.png; sourceTree = "<group>"; };
+		A2000000000000000000000C /* FocusExperience.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusExperience.swift; sourceTree = "<group>"; };
+		A20000000000000000000001 /* AppBlockerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppBlockerStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* DailyCount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyCount.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* PangpangDesktopPet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PangpangDesktopPet.swift; sourceTree = "<group>"; };
+		A20000000000000000000004 /* PangpangViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PangpangViews.swift; sourceTree = "<group>"; };
+		A20000000000000000000005 /* PomodoroStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PomodoroStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000006 /* StatisticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatisticsView.swift; sourceTree = "<group>"; };
+		A20000000000000000000007 /* WellbeingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellbeingStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000008 /* pangpang.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/pangpang-head-v1.png; sourceTree = "<group>"; };
+		A20000000000000000000009 /* Pangpang.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = Resources/Pangpang.icon; sourceTree = "<group>"; };
+		A2000000000000000000000A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A2000000000000000000000B /* pangpang.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = pangpang.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A30000000000000000000001 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A40000000000000000000001 = {isa = PBXGroup; children = (A40000000000000000000002 /* PangpangDesktopPet */, A40000000000000000000003 /* Products */); sourceTree = "<group>"; };
+		A40000000000000000000002 /* PangpangDesktopPet */ = {isa = PBXGroup; children = (
+			A20000000000000000000010,
+			A20000000000000000000011,
+			A20000000000000000000012,
+			A20000000000000000000013,
+			A20000000000000000000014,
+			A20000000000000000000015,
+			A2000000000000000000000C /* FocusExperience.swift */,
+			A2000000000000000000000E /* BlueToolbox.swift */,
+			A2000000000000000000000F /* focus-paw-blue.png */,
+			A2000000000000000000000D /* focus-paw-stamp.png */,
+			A20000000000000000000001 /* AppBlockerStore.swift */,
+			A20000000000000000000002 /* DailyCount.swift */,
+			A20000000000000000000003 /* PangpangDesktopPet.swift */,
+			A20000000000000000000004 /* PangpangViews.swift */,
+			A20000000000000000000005 /* PomodoroStore.swift */,
+			A20000000000000000000006 /* StatisticsView.swift */,
+			A20000000000000000000007 /* WellbeingStore.swift */,
+			A20000000000000000000008 /* pangpang.png */,
+			A20000000000000000000009 /* Pangpang.icon */,
+			A2000000000000000000000A /* Info.plist */,
+		); path = ""; sourceTree = "<group>"; };
+		A40000000000000000000003 /* Products */ = {isa = PBXGroup; children = (A2000000000000000000000B /* pangpang.app */); name = Products; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A50000000000000000000001 /* PangpangDesktopPet */ = {isa = PBXNativeTarget; buildConfigurationList = A60000000000000000000002 /* Build configuration list for PBXNativeTarget "PangpangDesktopPet" */; buildPhases = (A70000000000000000000001 /* Sources */, A30000000000000000000001 /* Frameworks */, A70000000000000000000002 /* Resources */); buildRules = (); dependencies = (); name = PangpangDesktopPet; productName = pangpang; productReference = A2000000000000000000000B /* pangpang.app */; productType = "com.apple.product-type.application"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A80000000000000000000001 /* Project object */ = {isa = PBXProject; attributes = { BuildIndependentTargetsInParallel = 1; LastUpgradeCheck = 2600; TargetAttributes = { A50000000000000000000001 = { CreatedOnToolsVersion = 26.0; }; }; }; buildConfigurationList = A60000000000000000000001 /* Build configuration list for PBXProject "PangpangDesktopPet" */; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = A40000000000000000000001; productRefGroup = A40000000000000000000003 /* Products */; projectDirPath = ""; projectRoot = ""; targets = (A50000000000000000000001 /* PangpangDesktopPet */); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A70000000000000000000002 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000011, A10000000000000000000012, A10000000000000000000013, A10000000000000000000014, A10000000000000000000015, A1000000000000000000000F /* focus-paw-blue.png in Resources */, A1000000000000000000000D /* focus-paw-stamp.png in Resources */, A10000000000000000000008 /* pangpang.png in Resources */, A10000000000000000000009 /* Pangpang.icon in Resources */); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A70000000000000000000001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000010, A1000000000000000000000E /* BlueToolbox.swift in Sources */, A1000000000000000000000C /* FocusExperience.swift in Sources */, A10000000000000000000001 /* AppBlockerStore.swift in Sources */, A10000000000000000000002 /* DailyCount.swift in Sources */, A10000000000000000000003 /* PangpangDesktopPet.swift in Sources */, A10000000000000000000004 /* PangpangViews.swift in Sources */, A10000000000000000000005 /* PomodoroStore.swift in Sources */, A10000000000000000000006 /* StatisticsView.swift in Sources */, A10000000000000000000007 /* WellbeingStore.swift in Sources */); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A90000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; COPY_PHASE_STRIP = NO; DEBUG_INFORMATION_FORMAT = dwarf; ENABLE_TESTABILITY = YES; GCC_C_LANGUAGE_STANDARD = gnu17; MACOSX_DEPLOYMENT_TARGET = 13.0; SDKROOT = macosx; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
+		A90000000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; COPY_PHASE_STRIP = NO; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; GCC_C_LANGUAGE_STANDARD = gnu17; MACOSX_DEPLOYMENT_TARGET = 13.0; SDKROOT = macosx; SWIFT_COMPILATION_MODE = wholemodule; }; name = Release; };
+		A90000000000000000000003 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = Pangpang; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; COMBINE_HIDPI_IMAGES = YES; CURRENT_PROJECT_VERSION = 20; EXECUTABLE_NAME = PangpangDesktopPet; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; MACOSX_DEPLOYMENT_TARGET = 13.0; MARKETING_VERSION = 1.0.0; PRODUCT_BUNDLE_IDENTIFIER = "com.tiantian.pangpang-desktop-pet"; PRODUCT_NAME = pangpang; SWIFT_VERSION = 5.0; }; name = Debug; };
+		A90000000000000000000004 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = Pangpang; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; COMBINE_HIDPI_IMAGES = YES; CURRENT_PROJECT_VERSION = 20; EXECUTABLE_NAME = PangpangDesktopPet; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; MACOSX_DEPLOYMENT_TARGET = 13.0; MARKETING_VERSION = 1.0.0; PRODUCT_BUNDLE_IDENTIFIER = "com.tiantian.pangpang-desktop-pet"; PRODUCT_NAME = pangpang; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_VERSION = 5.0; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A60000000000000000000001 /* Build configuration list for PBXProject "PangpangDesktopPet" */ = {isa = XCConfigurationList; buildConfigurations = (A90000000000000000000001 /* Debug */, A90000000000000000000002 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A60000000000000000000002 /* Build configuration list for PBXNativeTarget "PangpangDesktopPet" */ = {isa = XCConfigurationList; buildConfigurations = (A90000000000000000000003 /* Debug */, A90000000000000000000004 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = A80000000000000000000001 /* Project object */;
+}
