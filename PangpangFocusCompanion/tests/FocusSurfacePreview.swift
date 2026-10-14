@@ -1,6 +1,15 @@
 import AppKit
 import SwiftUI
 
+private final class PreviewHostingView<Content: View>: NSHostingView<Content> {
+    required init(rootView: Content) {
+        super.init(rootView: rootView)
+        sizingOptions = []
+    }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+}
+
 // Standalone UI test host. Each launch uses a disposable domain, never user records.
 @main
 @MainActor
@@ -37,30 +46,26 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
         defaults.set(try! JSONSerialization.data(withJSONObject: snapshot), forKey: "pangpang.app-blocker.snapshot")
         blocker = AppBlockerStore(defaults: defaults, monitorsApplications: false)
         let day = Calendar.current.startOfDay(for: Date())
-        let meditationDate = Calendar.current.date(byAdding: .hour, value: 9, to: day)!
-        UserDefaults.standard.set(try! JSONEncoder().encode([meditationDate]), forKey: "pangpang.meditation.completions")
-        UserDefaults.standard.set(try! JSONEncoder().encode([MoodEntry(id: UUID(), createdAt: meditationDate, emoji: "🙂", name: "平静", note: "留一点时间给自己。")]), forKey: "pangpang.mood.entries")
+        UserDefaults.standard.set(try! JSONEncoder().encode([Date]()), forKey: "pangpang.meditation.completions")
+        UserDefaults.standard.set(try! JSONEncoder().encode([MoodEntry]()), forKey: "pangpang.mood.entries")
         wellbeing = WellbeingStore()
         clock = Calendar.current.date(byAdding: .hour, value: 10, to: day)!
         store = PomodoroStore(defaults: defaults, now: { [unowned self] in clock }, schedulesTimer: false)
-        for index in 0..<2 {
+        for index in 0..<1 {
             clock = Calendar.current.date(byAdding: .hour, value: 10 + index, to: day)!
             store.draftTask = index == 0 ? "阅读一章" : "整理方案"
             store.startFocus()
             clock = clock.addingTimeInterval(1500)
             store.refreshForCurrentTime()
-            clock = clock.addingTimeInterval(300)
-            store.refreshForCurrentTime()
         }
-        store.endCurrentSession()
         store.showsMiniCard = false
-        store.draftTask = "阅读一章"
-        store.startFocus()
-        clock = clock.addingTimeInterval(378)
+        clock = clock.addingTimeInterval(13)
         store.refreshForCurrentTime()
+        store.togglePause()
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
+        window.minSize = NSSize(width: 800, height: 600)
         window.title = "Pangpang Design Preview"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
@@ -93,7 +98,7 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showHome() {
-        window.contentView = NSHostingView(rootView: BlueToolboxHome(store: store, wellbeing: wellbeing, appBlocker: blocker,
+        window.contentView = PreviewHostingView(rootView: BlueToolboxHome(store: store, wellbeing: wellbeing, appBlocker: blocker,
             onTool: { [unowned self] tool in
                 if tool == .pomodoro { showFocus() }
                 else if tool == .mood { showMood() }
@@ -102,40 +107,37 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
             }, onHistory: { [unowned self] in showStats(returnToFocus: false) }).environment(\.colorScheme, .light))
     }
     private func showFocus() {
-        window.contentView = NSHostingView(rootView: FocusExperienceView(store: store,
+        window.contentView = PreviewHostingView(rootView: FocusExperienceView(store: store, appBlocker: blocker,
             onBack: { [unowned self] in showHome() }, onClose: { [unowned self] in window.orderOut(nil) },
             onHistory: { [unowned self] in showStats(returnToFocus: true) }).environment(\.colorScheme, .light))
     }
 
     private func showMood() {
-        window.contentView = NSHostingView(rootView: MoodJournalPage(wellbeing: wellbeing,
+        window.contentView = PreviewHostingView(rootView: MoodJournalPage(wellbeing: wellbeing,
             onBack: { [unowned self] in showHome() },
             onHistory: { [unowned self] in showWellbeingStats(mood: true) }).environment(\.colorScheme, .light))
-        window.setFrame(NSRect(origin: window.frame.origin, size: NSSize(width: 800, height: 600)), display: true)
     }
     private func showGuard() {
-        window.contentView = NSHostingView(rootView: AppGuardPage(store: blocker,
+        window.contentView = PreviewHostingView(rootView: AppGuardPage(store: blocker, pomodoro: store,
             onBack: { [unowned self] in showHome() }).environment(\.colorScheme, .light))
-        window.setFrame(NSRect(origin: window.frame.origin, size: NSSize(width: 800, height: 600)), display: true)
     }
     private func showMeditation() {
-        window.contentView = NSHostingView(rootView: MeditationPage(wellbeing: wellbeing,
+        window.contentView = PreviewHostingView(rootView: MeditationPage(wellbeing: wellbeing,
             onBack: { [unowned self] in showHome() },
             onHistory: { [unowned self] in showWellbeingStats(mood: false) }).environment(\.colorScheme, .light))
-        window.setFrame(NSRect(origin: window.frame.origin, size: NSSize(width: 800, height: 600)), display: true)
     }
     private func showWellbeingStats(mood: Bool) {
-        window.contentView = NSHostingView(rootView: StatisticsView(pomodoro: store, wellbeing: wellbeing,
+        window.contentView = PreviewHostingView(rootView: StatisticsView(pomodoro: store, wellbeing: wellbeing,
             onBack: { [unowned self] in if mood { showMood() } else { showMeditation() } },
             onClose: { [unowned self] in window.orderOut(nil) }, returnTitle: mood ? "返回心情记录" : "返回冥想",
             initialMetric: mood ? .mood : .meditation).environment(\.colorScheme, .light))
     }
 
     private func showStats(returnToFocus: Bool) {
-        window.contentView = NSHostingView(rootView: StatisticsView(pomodoro: store, wellbeing: wellbeing,
+        window.contentView = PreviewHostingView(rootView: StatisticsView(pomodoro: store, wellbeing: wellbeing,
             onBack: { [unowned self] in if returnToFocus { showFocus() } else { showHome() } },
             onClose: { [unowned self] in window.orderOut(nil) },
-            returnTitle: returnToFocus ? "返回专注" : "返回工具箱").environment(\.colorScheme, .light))
+            returnTitle: returnToFocus ? "返回沉浸专注" : "返回专注").environment(\.colorScheme, .light))
     }
 
     private func appMenuEdit(_ menu: NSMenu) {

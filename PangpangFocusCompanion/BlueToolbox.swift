@@ -2,100 +2,91 @@ import SwiftUI
 
 struct AppGuardPage: View {
     @ObservedObject var store: AppBlockerStore
+    @ObservedObject var pomodoro: PomodoroStore
     let onBack: () -> Void
-    private var stateText: String {
+    var body: some View {
+        FocusSettingsView(store: pomodoro, appBlocker: store, returnTitle: "返回专注", initialSection: .guardApps, onClose: onBack)
+    }
+}
+
+enum SettingsSection { case timing, guardApps }
+
+private struct SettingsActionStyle: ButtonStyle {
+    var primary = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.font(.system(size: 15, weight: .medium)).frame(minWidth: primary ? 56 : 0)
+            .padding(.horizontal, 16).frame(height: 34)
+            .foregroundStyle(primary ? Color.white : FocusTheme.accent)
+            .background(primary ? FocusTheme.accent : Color.clear, in: RoundedRectangle(cornerRadius: 9))
+            .overlay { RoundedRectangle(cornerRadius: 9).strokeBorder(primary ? Color.clear : FocusTheme.accent.opacity(0.55)) }
+            .opacity(configuration.isPressed ? 0.75 : 1)
+    }
+}
+
+private struct SettingsGuardContents: View {
+    @ObservedObject var store: AppBlockerStore
+    private var status: String {
         if !store.isEnabled { return "守护未开启" }
-        if store.blockedApplications.isEmpty { return "开关已开启，等待添加 App" }
-        return store.isBlockingNow ? "正在守护专注" : "开关已开启，等待专注"
+        if store.blockedApplications.isEmpty { return "已开启，等待添加 App" }
+        return store.isBlockingNow ? "正在守护专注" : "已开启，等待专注"
     }
     var body: some View {
-        VStack(spacing: 0) {
-            WellbeingPageHeader(title: "App 管控", onBack: onBack)
-            HStack(alignment: .top, spacing: 0) {
-                VStack(alignment: .leading, spacing: 0) {
-                    FocusCat(size: 132).frame(maxWidth: .infinity).padding(.top, 4)
-                        .accessibilityHidden(true)
-                    Text("专注时，少一点打扰。")
-                        .font(.system(size: 25, weight: .bold)).lineLimit(1).minimumScaleFactor(0.85)
-                        .padding(.top, 12)
-                    HStack {
-                        Text("专注守护").font(.system(size: 21, weight: .semibold))
-                        Spacer()
-                        Toggle("专注守护", isOn: Binding(get: { store.isEnabled }, set: { store.setEnabled($0) }))
-                            .labelsHidden().toggleStyle(.switch).tint(FocusTheme.accent)
-                            .accessibilityLabel("专注守护").accessibilityIdentifier("guard.enabled")
-                    }.padding(.top, 45)
-                    Text(stateText).font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(store.isEnabled ? FocusTheme.accent : FocusTheme.secondary)
-                        .padding(.top, 10).fixedSize(horizontal: false, vertical: true)
-                    Text("进入专注后，自动隐藏黑名单 App。")
-                        .font(.system(size: 14)).foregroundStyle(FocusTheme.secondary)
-                        .padding(.top, 20).fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 20)
-                    HStack(spacing: 14) {
-                        Image(systemName: "leaf.fill").font(.system(size: 22)).foregroundStyle(FocusTheme.accent.opacity(0.65))
-                        Text("休息和暂停自动放行。").font(.system(size: 14)).foregroundStyle(FocusTheme.secondary)
-                    }.padding(.bottom, 12)
-                }.frame(width: 292)
-                Divider().padding(.leading, 9).padding(.trailing, 28)
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("黑名单").font(.system(size: 25, weight: .bold))
-                            Text("已添加 \(store.blockedApplications.count) 个 App")
-                                .font(.system(size: 14)).foregroundStyle(FocusTheme.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            Text("专注守护").font(.system(size: 16, weight: .semibold)).padding(.bottom, 22)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("开启 App 管控").font(.system(size: 15, weight: .medium))
+                    Text("仅专注中生效，休息和暂停自动放行。")
+                        .font(.system(size: 12)).foregroundStyle(FocusTheme.secondary)
+                }
+                Spacer()
+                Toggle("开启 App 管控", isOn: Binding(get: { store.isEnabled }, set: { store.setEnabled($0) }))
+                    .labelsHidden().toggleStyle(.switch).tint(FocusTheme.accent)
+                    .accessibilityIdentifier("guard.enabled")
+            }
+            Label(status, systemImage: "circle.fill")
+                .font(.system(size: 12)).foregroundStyle(store.isEnabled ? FocusTheme.accent : FocusTheme.secondary)
+                .padding(.top, 22)
+            Divider().padding(.top, 28).padding(.bottom, 20)
+            HStack {
+                Text("管控 App").font(.system(size: 15, weight: .semibold))
+                Text("\(store.blockedApplications.count) 个 App").font(.system(size: 12)).foregroundStyle(FocusTheme.secondary)
+                Spacer()
+                Button { store.chooseApplications() } label: { Label("添加 App", systemImage: "plus") }
+                    .buttonStyle(SettingsActionStyle()).accessibilityIdentifier("guard.add")
+            }
+            ScrollView {
+                VStack(spacing: 0) {
+                    if store.blockedApplications.isEmpty {
+                        VStack(spacing: 10) {
+                            Image(systemName: "app.badge.checkmark").font(.system(size: 26)).foregroundStyle(FocusTheme.accent)
+                            Text("还没有添加 App").font(.system(size: 14, weight: .medium))
+                            Text("添加容易分心的 App，专注时会暂时隐藏。").font(.system(size: 12)).foregroundStyle(FocusTheme.secondary)
+                        }.frame(maxWidth: .infinity).padding(.top, 36)
+                    } else {
+                        ForEach(store.blockedApplications) { application in
+                            HStack(spacing: 14) {
+                                Image(nsImage: store.icon(for: application)).resizable().scaledToFit()
+                                    .frame(width: 40, height: 40).accessibilityHidden(true)
+                                Text(application.name).font(.system(size: 14, weight: .medium))
+                                    .lineLimit(1).help(application.bundleIdentifier)
+                                Spacer()
+                                Button { store.remove(application) } label: {
+                                    Image(systemName: "minus").font(.system(size: 13, weight: .medium))
+                                        .frame(width: 28, height: 28)
+                                        .background(FocusTheme.secondary.opacity(0.08), in: Circle())
+                                        .frame(width: 36, height: 36).contentShape(Rectangle())
+                                }.buttonStyle(.plain).accessibilityLabel("移除 \(application.name)")
+                                    .help("仅移出管控列表，不会删除 App")
+                                    .accessibilityIdentifier("guard.remove.\(application.bundleIdentifier)")
+                            }.frame(height: 64)
                         }
-                        Spacer(minLength: 10)
-                        Button { store.chooseApplications() } label: {
-                            Label("添加 App", systemImage: "plus").frame(width: 122, height: 38)
-                        }.buttonStyle(FocusPillStyle(fill: FocusTheme.accent, ink: .white))
-                            .font(.system(size: 14, weight: .medium)).accessibilityIdentifier("guard.add")
-                    }.padding(.top, 16)
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            if store.blockedApplications.isEmpty {
-                                VStack(spacing: 14) {
-                                    Image(systemName: "app.badge.checkmark").font(.system(size: 32))
-                                        .foregroundStyle(FocusTheme.accent.opacity(0.7))
-                                    Text("还没有添加 App").font(.system(size: 17, weight: .semibold))
-                                    Text("把容易分心的 App 放在这里，\n专注时替你暂时挡一下。")
-                                        .font(.system(size: 13)).multilineTextAlignment(.center).foregroundStyle(FocusTheme.secondary)
-                                }.frame(maxWidth: .infinity).padding(.top, 48)
-                            } else {
-                                ForEach(store.blockedApplications) { application in
-                                    HStack(spacing: 16) {
-                                        Image(nsImage: store.icon(for: application)).resizable().scaledToFit()
-                                            .frame(width: 54, height: 54).accessibilityHidden(true)
-                                        Text(application.name).font(.system(size: 18, weight: .semibold))
-                                            .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                                            .help(application.bundleIdentifier)
-                                        Button { store.remove(application) } label: {
-                                            Image(systemName: "minus").font(.system(size: 15, weight: .semibold))
-                                                .frame(width: 32, height: 32)
-                                                .background(FocusTheme.secondary.opacity(0.10), in: Circle())
-                                                .frame(width: 44, height: 44).contentShape(Rectangle())
-                                        }.buttonStyle(.plain).foregroundStyle(FocusTheme.ink)
-                                            .accessibilityLabel("移除 \(application.name)")
-                                            .help("仅移出黑名单，不会删除 App")
-                                            .accessibilityIdentifier("guard.remove.\(application.bundleIdentifier)")
-                                    }.frame(minHeight: 78)
-                                    if application.id != store.blockedApplications.last?.id { Divider() }
-                                }
-                            }
-                        }.frame(maxWidth: .infinity)
                     }
                 }.frame(maxWidth: .infinity)
-            }.padding(.horizontal, 36).padding(.top, 14).padding(.bottom, 18)
-            Divider().padding(.horizontal, 36)
-            HStack(spacing: 16) {
-                Image(systemName: "checkmark.shield.fill").font(.system(size: 28))
-                    .foregroundStyle(FocusTheme.accent.opacity(0.65)).frame(width: 38)
-                Text("只隐藏，不会退出 App 或删除数据。")
-                    .font(.system(size: 14)).foregroundStyle(FocusTheme.secondary)
-                Spacer()
-            }.padding(.horizontal, 36).frame(height: 68)
-        }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(FocusTheme.background).foregroundStyle(FocusTheme.ink).ignoresSafeArea()
+            }.padding(.top, 12)
+            Label("只隐藏 App，不会退出或删除数据。", systemImage: "info.circle")
+                .font(.system(size: 12)).foregroundStyle(FocusTheme.secondary).padding(.top, 16)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -123,115 +114,115 @@ struct FocusSettingsButton: View {
 
 struct FocusSettingsView: View {
     @ObservedObject var store: PomodoroStore
+    var appBlocker: AppBlockerStore
     let onClose: () -> Void
-    var returnTitle = "返回专注"
+    var returnTitle: String
     @State private var draft: FocusSettings
     @State private var miniCard: Bool
-    init(store: PomodoroStore, returnTitle: String = "返回专注", onClose: @escaping () -> Void) {
-        self.store = store; self.onClose = onClose
-        self.returnTitle = returnTitle
+    @State private var floatingEntry: Bool
+    @State private var section: SettingsSection
+
+    init(store: PomodoroStore, appBlocker: AppBlockerStore, returnTitle: String = "返回专注",
+         initialSection: SettingsSection = .timing, onClose: @escaping () -> Void) {
+        self.store = store; self.appBlocker = appBlocker; self.onClose = onClose; self.returnTitle = returnTitle
         _draft = State(initialValue: store.settings)
         _miniCard = State(initialValue: store.showsMiniCard)
+        _floatingEntry = State(initialValue: store.showsFloatingEntry)
+        _section = State(initialValue: initialSection)
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 Button(action: onClose) { Label(returnTitle, systemImage: "chevron.left") }
-                    .buttonStyle(.plain).font(.system(size: 15, weight: .medium))
-                    .accessibilityIdentifier("settings.back")
+                    .buttonStyle(.plain).font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(FocusTheme.secondary).accessibilityIdentifier("settings.back")
+                    .padding(.horizontal, 16).frame(height: 36).padding(.bottom, 22)
+                navigation("计时与显示", icon: "clock", value: .timing, id: "settings.timing")
+                navigation("专注守护", icon: "checkmark.shield", value: .guardApps, id: "settings.guard")
+                    .padding(.top, 6)
                 Spacer()
-                Text(store.canPause ? "\(store.phaseTitle)  \(store.remainingText() ?? "")" : "尚未开始")
-                    .font(.system(size: 13, weight: .medium)).monospacedDigit()
-                    .padding(.horizontal, 14).frame(height: 30)
-                    .background(FocusTheme.accent.opacity(0.08), in: Capsule())
-            }
-            .frame(height: 36)
-            .overlay { Text("设置").font(.system(size: 20, weight: .bold)).allowsHitTesting(false) }
-            HStack(alignment: .top, spacing: 36) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("专注").font(.system(size: 26, weight: .bold))
-                    Text("设置一次专注的时长。").font(.system(size: 14)).foregroundStyle(FocusTheme.secondary)
-                    Text("专注时长").font(.system(size: 19, weight: .semibold)).padding(.top, 28)
-                    HStack(spacing: 12) {
-                        HStack(spacing: 12) {
-                            TextField("专注时长", value: $draft.focusMinutes, format: .number.grouping(.never))
-                                .textFieldStyle(.plain).multilineTextAlignment(.center)
-                                .font(.system(size: 62, weight: .semibold, design: .rounded)).frame(width: 110)
-                                .accessibilityLabel("专注时长")
-                            VStack(spacing: 6) {
-                                durationArrow("chevron.up", label: "增加专注时长") { draft.focusMinutes = min(180, draft.focusMinutes + 1) }
-                                durationArrow("chevron.down", label: "减少专注时长") { draft.focusMinutes = max(1, draft.focusMinutes - 1) }
-                            }
-                        }.padding(16).frame(height: 98)
-                            .background(FocusTheme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 18))
-                        Text("分钟").font(.system(size: 17)).foregroundStyle(FocusTheme.secondary)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-                Divider().frame(height: 240)
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("休息").font(.system(size: 26, weight: .bold))
-                    Text("设置短休息、长休息的时长与间隔。").font(.system(size: 14)).foregroundStyle(FocusTheme.secondary)
-                    VStack(spacing: 0) {
-                        numberRow("短休息", value: $draft.shortBreakMinutes, range: 1...60, unit: "分钟")
-                        Divider()
-                        numberRow("长休息", value: $draft.longBreakMinutes, range: 1...120, unit: "分钟")
-                        Divider()
-                        numberRow("长休息间隔", value: $draft.longBreakInterval, range: 1...12, unit: "轮", prefix: "每")
-                    }.padding(.top, 8)
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }.padding(.top, 28)
-            Text("新设置用于下一阶段，当前计时不变。")
-                .font(.system(size: 13)).foregroundStyle(FocusTheme.secondary).padding(.top, 12)
-            Divider().padding(.vertical, 16)
-            HStack {
-                VStack(alignment: .leading, spacing: 9) {
-                    Text("专注小卡片").font(.system(size: 20, weight: .semibold))
-                    Text("专注和休息时自动显示，记住你的选择。").font(.system(size: 13)).foregroundStyle(FocusTheme.secondary)
-                }
-                Spacer()
-                Toggle("专注小卡片", isOn: $miniCard).labelsHidden().toggleStyle(.switch)
-                    .tint(FocusTheme.accent).accessibilityLabel("专注小卡片")
-            }
-            Divider().padding(.top, 20)
-            Spacer(minLength: 12)
-            HStack {
-                FocusCat(size: 76).accessibilityHidden(true)
-                Button("恢复默认") { draft = FocusSettings(); miniCard = true }
-                    .buttonStyle(.plain).foregroundStyle(FocusTheme.secondary).font(.system(size: 14))
-                Spacer()
-                VStack(alignment: .trailing, spacing: 10) {
-                Button {
+                HStack(spacing: 10) {
+                    FocusCat(size: 30).accessibilityHidden(true)
+                    Text(AppBrand.wordmark).font(.system(size: 12)).foregroundStyle(FocusTheme.secondary)
+                }.padding(.horizontal, 16)
+            }.padding(.horizontal, 16).padding(.top, 44).padding(.bottom, 24)
+                .frame(width: 216).frame(maxHeight: .infinity)
+                .background(FocusTheme.accent.opacity(0.025))
+            VStack(alignment: .leading, spacing: 0) {
+                Text("设置").font(.system(size: 20, weight: .semibold)).padding(.bottom, 26)
+                if section == .timing { timingContents }
+                else { SettingsGuardContents(store: appBlocker) }
+            }.padding(.horizontal, 36).padding(.top, 48).padding(.bottom, 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(FocusTheme.background).foregroundStyle(FocusTheme.ink).ignoresSafeArea()
+            .onChange(of: store.showsMiniCard) { miniCard = $0 }
+            .onChange(of: store.showsFloatingEntry) { floatingEntry = $0 }
+    }
+    private func navigation(_ title: String, icon: String, value: SettingsSection, id: String) -> some View {
+        Button { section = value } label: {
+            Label(title, systemImage: icon).font(.system(size: 14, weight: .medium))
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14).frame(height: 42)
+                .foregroundStyle(section == value ? FocusTheme.accent : FocusTheme.secondary)
+                .background(section == value ? FocusTheme.accent.opacity(0.09) : Color.clear, in: RoundedRectangle(cornerRadius: 9))
+        }.buttonStyle(.plain).accessibilityIdentifier(id)
+            .accessibilityAddTraits(section == value ? .isSelected : [])
+    }
+    private var timingContents: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("计时设置").font(.system(size: 16, weight: .semibold)).padding(.bottom, 10)
+            durationRow("专注时长", detail: "设置一次专注的时长。", value: $draft.focusMinutes, range: 1...180, unit: "分钟")
+            durationRow("短休息", detail: "设置短休息的时长。", value: $draft.shortBreakMinutes, range: 1...60, unit: "分钟")
+            durationRow("长休息", detail: "设置长休息的时长。", value: $draft.longBreakMinutes, range: 1...120, unit: "分钟")
+            durationRow("长休息间隔", detail: "设置多少轮后进行一次长休息。", value: $draft.longBreakInterval, range: 1...12, unit: "轮", prefix: "每")
+            Divider().padding(.top, 12).padding(.bottom, 18)
+            Text("显示设置").font(.system(size: 16, weight: .semibold)).padding(.bottom, 2)
+            visibilityRow("圆形悬浮入口", detail: "桌面猫头像入口。", value: $floatingEntry, id: "settings.floatingEntry")
+            visibilityRow("悬浮计时卡", detail: "专注与休息时显示剩余时间。", value: $miniCard, id: "settings.miniCard")
+            Spacer(minLength: 14)
+            HStack(spacing: 12) {
+                Text("新设置用于下一阶段，当前计时不变。").font(.system(size: 11)).foregroundStyle(FocusTheme.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                Button("恢复默认") { draft = FocusSettings(); miniCard = true; floatingEntry = false }
+                    .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(FocusTheme.accent).fixedSize()
+                Button("保存") {
                     store.updateSettings(draft)
                     store.showsMiniCard = miniCard
+                    store.showsFloatingEntry = floatingEntry
                     onClose()
-                } label: { Text("保存并返回").frame(width: 174, height: 46) }
-                    .buttonStyle(FocusPillStyle(fill: FocusTheme.accent, ink: .white))
-                    .accessibilityIdentifier("settings.save")
-                    Text("休息结束后，由你开始下一轮。").font(.system(size: 12)).foregroundStyle(FocusTheme.secondary)
-                }
+                }.buttonStyle(SettingsActionStyle(primary: true)).accessibilityIdentifier("settings.save")
             }
-        }.padding(.horizontal, 48).padding(.top, 36).padding(.bottom, 22)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(FocusTheme.background).foregroundStyle(FocusTheme.ink).ignoresSafeArea()
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
-    private func durationArrow(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: symbol).font(.system(size: 14, weight: .semibold)).frame(width: 30, height: 28) }
-            .buttonStyle(.plain).background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 8)).accessibilityLabel(label)
+    private func description(_ title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.system(size: 15, weight: .medium))
+            Text(detail).font(.system(size: 12)).foregroundStyle(FocusTheme.secondary)
+        }
     }
-    private func numberRow(_ title: String, value: Binding<Int>, range: ClosedRange<Int>, unit: String, prefix: String = "") -> some View {
-        HStack(spacing: 8) {
-            Text(title).font(.system(size: 17, weight: .medium))
+    private func visibilityRow(_ title: String, detail: String, value: Binding<Bool>, id: String) -> some View {
+        HStack {
+            description(title, detail: detail)
             Spacer()
-            if !prefix.isEmpty { Text(prefix).font(.system(size: 13)) }
+            Toggle(title, isOn: value).labelsHidden().toggleStyle(.switch).tint(FocusTheme.accent)
+                .accessibilityLabel(title).accessibilityIdentifier(id)
+        }.frame(height: 56)
+    }
+    private func durationRow(_ title: String, detail: String, value: Binding<Int>, range: ClosedRange<Int>, unit: String, prefix: String = "") -> some View {
+        HStack(spacing: 8) {
+            description(title, detail: detail)
+            Spacer(minLength: 10)
+            Text(prefix).font(.system(size: 12)).frame(width: 14)
             HStack(spacing: 4) {
                 TextField(title, value: value, format: .number.grouping(.never))
                     .textFieldStyle(.plain).multilineTextAlignment(.center).frame(width: 42)
-                    .font(.system(size: 16, weight: .medium)).accessibilityLabel(title)
-                Stepper(title, value: value, in: range).labelsHidden().frame(width: 20)
-            }.padding(.horizontal, 7).frame(height: 34)
-                .background(FocusTheme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
-            Text(unit).font(.system(size: 13)).frame(width: 30, alignment: .trailing)
-        }.frame(height: 52)
+                    .font(.system(size: 14)).accessibilityLabel(title)
+                Stepper(title, value: value, in: range).labelsHidden().frame(width: 18)
+            }.padding(.horizontal, 7).frame(width: 94, height: 32)
+                .background(FocusTheme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            Text(unit).font(.system(size: 13)).frame(width: 42, alignment: .trailing)
+        }.frame(height: 56)
     }
 }
 
@@ -245,7 +236,7 @@ struct BlueToolboxHome: View {
     var body: some View {
         Group {
             if showsSettings {
-                FocusSettingsView(store: store, returnTitle: "返回工具箱") {
+                FocusSettingsView(store: store, appBlocker: appBlocker, returnTitle: "返回专注") {
                     withAnimation(.easeInOut(duration: 0.16)) { showsSettings = false }
                 }.transition(.opacity)
             } else {
@@ -253,8 +244,13 @@ struct BlueToolboxHome: View {
             ZStack(alignment: .top) {
                 FocusTheme.background
                 HStack {
-                    Text("工具箱").font(.system(size: 17, weight: .semibold))
+                    Text("专注").font(.system(size: 17, weight: .semibold))
                     Spacer()
+                    Label(appBlocker.headerStatusText, systemImage: "checkmark.shield")
+                        .font(.system(size: 12, weight: .medium)).foregroundStyle(FocusTheme.secondary)
+                        .help("配置管控 App，请前往设置中的专注守护。")
+                        .accessibilityIdentifier("home.guardStatus")
+                    Divider().frame(height: 18).padding(.horizontal, 6)
                     FocusSettingsButton { withAnimation(.easeInOut(duration: 0.16)) { showsSettings = true } }
                 }.padding(.horizontal, 32).padding(.top, 36)
                 VStack(spacing: 0) {
@@ -270,7 +266,7 @@ struct BlueToolboxHome: View {
                         .lineLimit(1).frame(maxWidth: 350).frame(height: 30)
                     HStack(spacing: 20) {
                         Button { onTool(.pomodoro) } label: {
-                            Text(store.canPause ? "回到专注" : "开始专注").frame(width: 216, height: 60)
+                            Text(store.canPause ? "进入沉浸专注" : "开始专注").frame(width: 216, height: 60)
                         }.buttonStyle(FocusPillStyle(fill: FocusTheme.accent, ink: .white))
                             .accessibilityIdentifier("toolbox.focus")
                         if store.canPause {
@@ -287,9 +283,7 @@ struct BlueToolboxHome: View {
                     tool("1 分钟冥想", detail: "今日 \(wellbeing.meditationCountToday) 次", symbol: "leaf.fill", color: Color(red: 0.43, green: 0.54, blue: 0.30), tool: .meditation)
                     Divider().frame(height: 40)
                     tool("情绪记录", detail: "今日 \(wellbeing.moodCountToday()) 次", symbol: "heart.fill", color: Color(red: 0.92, green: 0.47, blue: 0.41), tool: .mood)
-                    Divider().frame(height: 40)
-                    tool("App 管控", detail: appBlocker.statusText, symbol: "square.grid.2x2.fill", color: Color(red: 0.50, green: 0.46, blue: 0.42), tool: .appBlocker)
-                }.padding(.horizontal, 76).frame(height: 56)
+                }.frame(width: min(360, geometry.size.width - 120), height: 56)
                     .position(x: geometry.size.width / 2, y: geometry.size.height * 0.665)
                 ZStack(alignment: .topTrailing) {
                     RoundedRectangle(cornerRadius: 28).fill(FocusTheme.shelf).padding(.bottom, -28)
@@ -297,7 +291,7 @@ struct BlueToolboxHome: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("今日收获").font(.system(size: 16, weight: .semibold))
                             HStack(spacing: 8) {
-                                ForEach(0..<min(3, store.focusCountToday), id: \.self) { _ in FocusPaw(size: 66) }
+                                ForEach(0..<min(3, store.focusCountToday), id: \.self) { index in FocusPaw(size: 40).rotationEffect(.degrees(index % 2 == 0 ? -10 : 8)) }
                                 Text("\(store.focusCountToday) 轮 · \(store.todayMinutes) 分钟")
                                     .font(.system(size: 17, weight: .medium)).fixedSize()
                             }.frame(height: 46)
@@ -312,7 +306,7 @@ struct BlueToolboxHome: View {
                     }.padding(.horizontal, 50).padding(.top, 24)
                 }.frame(height: 134).clipped()
                     .overlay(alignment: .topTrailing) {
-                        FocusCat(size: 108).padding(.trailing, 48).offset(y: -52)
+                        FocusCat(size: 88, asset: "pangpang-home-peek-v1").padding(.trailing, 48).offset(y: -54)
                             .allowsHitTesting(false).accessibilityHidden(true)
                     }.frame(maxHeight: .infinity, alignment: .bottom)
             }.foregroundStyle(FocusTheme.ink)

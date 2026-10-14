@@ -2,9 +2,10 @@ import SwiftUI
 
 struct FocusCat: View {
     var size: CGFloat = 48
+    var asset: String = "pangpang-head-v1"
     var body: some View {
         Group {
-            if let url = Bundle.main.url(forResource: "pangpang-head-v1", withExtension: "png"), let image = NSImage(contentsOf: url) {
+            if let url = Bundle.main.url(forResource: asset, withExtension: "png"), let image = NSImage(contentsOf: url) {
                 Image(nsImage: image).resizable().scaledToFit()
             } else { Image(systemName: "cat.fill").resizable().scaledToFit() }
         }
@@ -19,7 +20,7 @@ struct CompactFocusCard: View {
     private var tint: Color { FocusTheme.accent }
     var body: some View {
         HStack(spacing: 9) {
-            Button(action: onOpen) { FocusCat(size: 34) }.buttonStyle(.plain).help("打开专注页面")
+            Button(action: onOpen) { FocusCat(size: 34) }.buttonStyle(.plain).help("打开沉浸专注")
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(store.phase == .readyForFocus ? "准备好下一轮了吗？" : store.phaseTitle)
@@ -54,6 +55,7 @@ struct CompactFocusCard: View {
 
 struct FocusExperienceView: View {
     @ObservedObject var store: PomodoroStore
+    var appBlocker: AppBlockerStore
     let onBack: () -> Void
     let onClose: () -> Void
     let onHistory: () -> Void
@@ -80,7 +82,7 @@ struct FocusExperienceView: View {
     var body: some View {
         Group {
             if showsSettings {
-                FocusSettingsView(store: store) {
+                FocusSettingsView(store: store, appBlocker: appBlocker, returnTitle: "返回沉浸专注") {
                     withAnimation(.easeInOut(duration: 0.16)) { showsSettings = false }
                 }.transition(.opacity)
             } else {
@@ -134,7 +136,7 @@ struct FocusExperienceView: View {
 
     private var header: some View {
         HStack {
-            Button(action: onBack) { Label("工具箱", systemImage: "chevron.left").frame(height: 36) }
+            Button(action: onBack) { Label("返回专注", systemImage: "chevron.left").frame(height: 36) }
                 .buttonStyle(.plain).font(.system(size: 15, weight: .medium))
             Spacer()
             FocusSettingsButton { withAnimation(.easeInOut(duration: 0.16)) { showsSettings = true } }
@@ -164,7 +166,7 @@ struct FocusExperienceView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("今日收获").font(.system(size: 16, weight: .semibold, design: .rounded))
                     HStack(spacing: 8) {
-                        ForEach(0..<min(store.focusCountToday, 3), id: \.self) { _ in FocusPaw(size: 66) }
+                        ForEach(0..<min(store.focusCountToday, 3), id: \.self) { index in FocusPaw(size: 40).rotationEffect(.degrees(index % 2 == 0 ? -10 : 8)) }
                         if store.focusCountToday == 0 {
                             Text("第一枚猫爪，等你拿下。")
                                 .font(.system(size: 13)).foregroundStyle(ink.opacity(0.85))
@@ -223,7 +225,7 @@ struct FocusExperienceView: View {
 struct FocusPaw: View {
     let size: CGFloat
     var body: some View {
-        if let url = Bundle.main.url(forResource: "focus-paw-blue", withExtension: "png"),
+        if let url = Bundle.main.url(forResource: "focus-paw-simple-v1", withExtension: "png"),
            let image = NSImage(contentsOf: url) {
             Image(nsImage: image).resizable().scaledToFit().frame(width: size, height: size)
                 .accessibilityHidden(true)
@@ -260,8 +262,7 @@ struct TodayHarvestView: View {
             } else {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 8) {
                     ForEach(0..<min(store.focusCountToday, 32), id: \.self) { _ in
-                        Image(systemName: "pawprint.fill").foregroundStyle(FocusTheme.accent).font(.system(size: 18))
-                            .padding(6).background(FocusTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 9))
+                        FocusPaw(size: 28)
                     }
                 }
                 if store.focusCountToday > 32 { Text("还有 \(store.focusCountToday - 32) 枚猫爪").font(.caption) }
@@ -277,14 +278,14 @@ struct FocusCompletionView: View {
     @State private var stamped = false
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: "pawprint.fill").font(.system(size: 36)).foregroundStyle(FocusTheme.accent)
+            FocusPaw(size: 48)
                 .rotationEffect(.degrees(stamped ? -8 : -22)).scaleEffect(stamped ? 1 : 0.4)
                 .animation(.spring(response: 0.4, dampingFraction: 0.6), value: stamped)
             VStack(alignment: .leading, spacing: 6) {
                 Text("这一轮，拿下了。").font(.system(size: 17, weight: .bold, design: .rounded))
                 Text("\(Int(record.seconds / 60)) 分钟 · 今日 \(store.focusCountToday) 轮").font(.system(size: 12))
                 Text("休息一下，下一枚猫爪等你。").font(.system(size: 11)).foregroundStyle(.secondary)
-                Button("记下这轮成果") { onNote() }.buttonStyle(.plain).foregroundStyle(FocusTheme.accent).font(.system(size: 12))
+                Button("记下这轮成果") { onNote() }.buttonStyle(HintButtonStyle(primary: true))
             }
         }.padding(20).frame(width: 340, height: 156)
         .background(FocusTheme.shelf, in: RoundedRectangle(cornerRadius: 24))

@@ -12,7 +12,7 @@ struct StatisticsView: View {
     @ObservedObject var wellbeing: WellbeingStore
     let onBack: () -> Void
     let onClose: () -> Void
-    var returnTitle = "返回工具箱"
+    var returnTitle = "返回专注"
     var initialMetric: StatisticsMetric = .focus
     @State private var period: StatisticsPeriod = .today
     @State private var metric: StatisticsMetric = .focus
@@ -97,7 +97,7 @@ struct StatisticsView: View {
                         Text("\(focusRecords.filter(\.completed).count) 轮完成").font(.system(size: 15, weight: .medium))
                     }
                     HStack(spacing: 2) {
-                        ForEach(0..<min(2, focusRecords.filter(\.completed).count), id: \.self) { _ in FocusPaw(size: 58) }
+                        ForEach(0..<min(2, focusRecords.filter(\.completed).count), id: \.self) { index in FocusPaw(size: 36).rotationEffect(.degrees(index % 2 == 0 ? -10 : 8)) }
                     }.accessibilityHidden(true)
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityLabel("查看专注统计")

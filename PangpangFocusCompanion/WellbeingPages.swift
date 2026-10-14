@@ -6,7 +6,7 @@ struct WellbeingPageHeader: View {
     let onBack: () -> Void
     var body: some View {
         HStack {
-            Button(action: onBack) { Label("返回工具箱", systemImage: "chevron.left") }
+            Button(action: onBack) { Label("返回专注", systemImage: "chevron.left") }
                 .buttonStyle(.plain).font(.system(size: 15, weight: .medium))
                 .accessibilityIdentifier("wellbeing.back")
             Spacer()
@@ -48,7 +48,6 @@ struct MoodJournalPage: View {
                             .font(.system(size: 14)).foregroundStyle(FocusTheme.secondary)
                     }
                     Spacer()
-                    FocusCat(size: 94).accessibilityHidden(true)
                 }.frame(height: 80)
                 HStack(spacing: 24) {
                     ForEach(JournalMood.allCases) { mood in

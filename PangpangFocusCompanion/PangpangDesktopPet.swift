@@ -44,8 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var outsideClickMonitor: Any?
     private var localClickMonitor: Any?
     private var toolboxPresentedAt: TimeInterval = 0
-    private let floatingEntryKey = "pangpang.floatingEntry.enabled"
-    private var floatingEntryEnabled: Bool { UserDefaults.standard.bool(forKey: floatingEntryKey) }
+    private var floatingEntryEnabled: Bool { pomodoro.showsFloatingEntry }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureApplicationMenu()
@@ -74,13 +73,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self?.configureStatusItem()
         }
         pomodoro.onFocusFinished = { [weak self] record in self?.showFocusCompletion(record) }
+        pomodoro.onFloatingEntryChange = { [weak self] in
+            guard let self else { return }
+            if self.floatingEntryEnabled { self.showPet() } else { self.petWindow?.orderOut(nil) }
+            self.configureStatusItem()
+            self.repositionAttachedPanels()
+        }
         wellbeing.onMeditationScheduleChanged = { [weak self] times in self?.scheduleMeditationReminders(times) }
         wellbeing.onStateChange = { [weak self] in self?.configureStatusItem() }
         wellbeing.onMeditationReminderDue = { [weak self] in
             self?.showMeditationReminder()
         }
         appBlocker.onBlockedApplication = { [weak self] application in
-            self?.showBubble(BubbleMessage(text: "现在不许打开 \(application.name)。", actionTitle: "知道了", action: .dismiss))
+            self?.showBubble(BubbleMessage(text: "\(application.name) 已暂时隐藏", actionTitle: "知道了", action: .dismiss, detail: "休息或暂停时可正常使用。"))
         }
         appBlocker.onStateChange = { [weak self] in
             self?.configureStatusItem()
@@ -154,11 +159,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func configureApplicationMenu() {
         let main = NSMenu()
         let applicationItem = NSMenuItem()
-        let applicationMenu = NSMenu(title: "pangpang")
-        let open = applicationMenu.addItem(withTitle: "打开工具箱", action: #selector(toggleToolbox), keyEquivalent: "")
+        let applicationMenu = NSMenu(title: AppBrand.name)
+        let open = applicationMenu.addItem(withTitle: "打开专注", action: #selector(toggleToolbox), keyEquivalent: "")
         open.target = self
         applicationMenu.addItem(.separator())
-        let quit = applicationMenu.addItem(withTitle: "退出 pangpang", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = applicationMenu.addItem(withTitle: "退出 \(AppBrand.name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
         applicationItem.submenu = applicationMenu
         main.addItem(applicationItem)
@@ -314,9 +319,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         item.button?.image?.isTemplate = true
         item.button?.imagePosition = .imageLeading
         item.button?.title = menuBarActivity.isEmpty ? "" : " \(menuBarActivity)"
-        item.button?.toolTip = "pangpang · \(menuBarActivity.isEmpty ? "工具箱" : menuBarActivity) · ⌃⌥P 打开／收起"
+        item.button?.toolTip = "\(AppBrand.name) · \(menuBarActivity.isEmpty ? "专注" : menuBarActivity) · ⌃⌥P 打开／收起"
         let menu = NSMenu()
-        let open = menu.addItem(withTitle: "打开／收起工具箱", action: #selector(toggleToolbox), keyEquivalent: shortcut?.isRegistered == true ? "p" : "")
+        let open = menu.addItem(withTitle: "打开／收起专注", action: #selector(toggleToolbox), keyEquivalent: shortcut?.isRegistered == true ? "p" : "")
         open.keyEquivalentModifierMask = [.control, .option]
         open.target = self
         if shortcut?.isRegistered != true {
@@ -324,7 +329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             unavailable.isEnabled = false
         }
         menu.addItem(.separator())
-        let status = menu.addItem(withTitle: menuBarActivity.isEmpty ? "pangpang · 未开始" : "pangpang · \(menuBarActivity)", action: nil, keyEquivalent: "")
+        let status = menu.addItem(withTitle: menuBarActivity.isEmpty ? "\(AppBrand.name) · 未开始" : "\(AppBrand.name) · \(menuBarActivity)", action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(.separator())
         let primary = menu.addItem(withTitle: pomodoro.primaryActionTitle, action: #selector(primaryAction), keyEquivalent: "")
@@ -338,13 +343,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             end.target = self
         }
         menu.addItem(.separator())
-        let focus = menu.addItem(withTitle: "打开专注页面", action: #selector(openFocusPage), keyEquivalent: "")
+        let focus = menu.addItem(withTitle: "打开沉浸专注", action: #selector(openFocusPage), keyEquivalent: "")
         focus.target = self
-        let mini = menu.addItem(withTitle: "专注／休息时自动显示小卡片", action: #selector(toggleMiniCardSetting), keyEquivalent: "")
+        let mini = menu.addItem(withTitle: "自动显示悬浮计时卡", action: #selector(toggleMiniCardSetting), keyEquivalent: "")
         mini.target = self
         mini.state = pomodoro.showsMiniCard ? .on : .off
         if pomodoro.canPause || pomodoro.phase == .readyForFocus {
-            let temporary = menu.addItem(withTitle: miniWindow?.isVisible == true ? "本轮收起小卡片" : "本轮显示小卡片", action: #selector(toggleTemporaryMiniCard), keyEquivalent: "")
+            let temporary = menu.addItem(withTitle: miniWindow?.isVisible == true ? "本轮收起计时卡" : "本轮显示计时卡", action: #selector(toggleTemporaryMiniCard), keyEquivalent: "")
             temporary.target = self
         }
         menu.addItem(.separator())
@@ -358,7 +363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let floating = menu.addItem(withTitle: "显示悬浮圆形入口", action: #selector(toggleFloatingEntry), keyEquivalent: "")
         floating.target = self
         floating.state = floatingEntryEnabled ? .on : .off
-        let quit = menu.addItem(withTitle: "退出 pangpang", action: #selector(quit), keyEquivalent: "q")
+        let quit = menu.addItem(withTitle: "退出 \(AppBrand.name)", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         item.menu = menu
         statusItem = item
@@ -379,26 +384,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
             NSColor.black.setFill()
             let head = NSBezierPath()
-            head.move(to: NSPoint(x: 3.0, y: 10.5))
-            head.curve(to: NSPoint(x: 3.3, y: 17), controlPoint1: NSPoint(x: 2.2, y: 14), controlPoint2: NSPoint(x: 2.7, y: 17.8))
-            head.curve(to: NSPoint(x: 6.6, y: 14.1), controlPoint1: NSPoint(x: 4.1, y: 17.5), controlPoint2: NSPoint(x: 5.8, y: 15))
-            head.curve(to: NSPoint(x: 11.4, y: 14.1), controlPoint1: NSPoint(x: 8, y: 14.6), controlPoint2: NSPoint(x: 10, y: 14.6))
-            head.curve(to: NSPoint(x: 14.7, y: 17), controlPoint1: NSPoint(x: 12.2, y: 15), controlPoint2: NSPoint(x: 14, y: 17.5))
-            head.curve(to: NSPoint(x: 15, y: 10.5), controlPoint1: NSPoint(x: 15.3, y: 17.8), controlPoint2: NSPoint(x: 15.8, y: 14))
-            head.curve(to: NSPoint(x: 9, y: 1), controlPoint1: NSPoint(x: 19, y: 4), controlPoint2: NSPoint(x: 13, y: 1))
-            head.curve(to: NSPoint(x: 3, y: 10.5), controlPoint1: NSPoint(x: 5, y: 1), controlPoint2: NSPoint(x: -1, y: 4))
+            // Match the brand head: broad cheeks, a softly flattened chin,
+            // and ears whose inner slopes meet a low, rounded forehead.
+            head.move(to: NSPoint(x: 2.1, y: 10.4))
+            head.curve(to: NSPoint(x: 2.8, y: 16.65), controlPoint1: NSPoint(x: 1.7, y: 13.5), controlPoint2: NSPoint(x: 2.0, y: 16.8))
+            head.curve(to: NSPoint(x: 6.7, y: 13.8), controlPoint1: NSPoint(x: 3.6, y: 16.95), controlPoint2: NSPoint(x: 5.7, y: 14.8))
+            head.curve(to: NSPoint(x: 11.3, y: 13.8), controlPoint1: NSPoint(x: 8.1, y: 14.15), controlPoint2: NSPoint(x: 9.9, y: 14.15))
+            head.curve(to: NSPoint(x: 15.2, y: 16.65), controlPoint1: NSPoint(x: 12.3, y: 14.8), controlPoint2: NSPoint(x: 14.4, y: 16.95))
+            head.curve(to: NSPoint(x: 15.9, y: 10.4), controlPoint1: NSPoint(x: 16.0, y: 16.8), controlPoint2: NSPoint(x: 16.3, y: 13.5))
+            head.curve(to: NSPoint(x: 15.9, y: 4.6), controlPoint1: NSPoint(x: 17.4, y: 8.1), controlPoint2: NSPoint(x: 16.6, y: 5.7))
+            head.curve(to: NSPoint(x: 9, y: 1.7), controlPoint1: NSPoint(x: 14.8, y: 2.65), controlPoint2: NSPoint(x: 11.5, y: 1.7))
+            head.curve(to: NSPoint(x: 2.1, y: 4.6), controlPoint1: NSPoint(x: 6.5, y: 1.7), controlPoint2: NSPoint(x: 3.2, y: 2.65))
+            head.curve(to: NSPoint(x: 2.1, y: 10.4), controlPoint1: NSPoint(x: 1.4, y: 5.7), controlPoint2: NSPoint(x: 0.6, y: 8.1))
             head.close()
             // Eye and nose cutouts stay legible in a template image at 18 points.
             let leftEye = NSBezierPath()
-            leftEye.move(to: NSPoint(x: 4.2, y: 8.1))
-            leftEye.curve(to: NSPoint(x: 7.5, y: 6.2), controlPoint1: NSPoint(x: 5.9, y: 8.6), controlPoint2: NSPoint(x: 7.1, y: 7.7))
-            leftEye.curve(to: NSPoint(x: 4.2, y: 8.1), controlPoint1: NSPoint(x: 5.9, y: 5.7), controlPoint2: NSPoint(x: 4.8, y: 6.8))
+            leftEye.move(to: NSPoint(x: 4.0, y: 8.25))
+            leftEye.curve(to: NSPoint(x: 7.4, y: 6.7), controlPoint1: NSPoint(x: 5.6, y: 8.75), controlPoint2: NSPoint(x: 6.95, y: 8.0))
+            leftEye.curve(to: NSPoint(x: 4.0, y: 8.25), controlPoint1: NSPoint(x: 5.85, y: 6.0), controlPoint2: NSPoint(x: 4.45, y: 6.75))
             leftEye.close()
             head.append(leftEye)
             let rightEye = NSBezierPath()
-            rightEye.move(to: NSPoint(x: 13.8, y: 8.1))
-            rightEye.curve(to: NSPoint(x: 10.5, y: 6.2), controlPoint1: NSPoint(x: 12.1, y: 8.6), controlPoint2: NSPoint(x: 10.9, y: 7.7))
-            rightEye.curve(to: NSPoint(x: 13.8, y: 8.1), controlPoint1: NSPoint(x: 12.1, y: 5.7), controlPoint2: NSPoint(x: 13.2, y: 6.8))
+            rightEye.move(to: NSPoint(x: 14.0, y: 8.25))
+            rightEye.curve(to: NSPoint(x: 10.6, y: 6.7), controlPoint1: NSPoint(x: 12.4, y: 8.75), controlPoint2: NSPoint(x: 11.05, y: 8.0))
+            rightEye.curve(to: NSPoint(x: 14.0, y: 8.25), controlPoint1: NSPoint(x: 12.15, y: 6.0), controlPoint2: NSPoint(x: 13.55, y: 6.75))
             rightEye.close()
             head.append(rightEye)
             let nose = NSBezierPath()
@@ -412,7 +421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "pangpang 猫头"
+        image.accessibilityDescription = "\(AppBrand.name) 猫头"
         return image
     }
 
@@ -446,11 +455,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc private func toggleToolbox() { handlePetTap() }
 
     @objc private func toggleFloatingEntry() {
-        let enabled = !floatingEntryEnabled
-        UserDefaults.standard.set(enabled, forKey: floatingEntryKey)
-        if enabled { showPet() } else { hidePet() }
-        configureStatusItem()
-        repositionAttachedPanels()
+        pomodoro.showsFloatingEntry.toggle()
     }
 
     private func handlePetTap() {
@@ -498,7 +503,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         lastMeditationReminderShownAt = now
-        showBubble(BubbleMessage(text: "一分钟，回来呼吸一下？", actionTitle: "开始冥想", action: .startMeditation))
+        showBubble(BubbleMessage(text: "留一分钟，回来呼吸", actionTitle: "开始冥想", action: .startMeditation, detail: "和 \(AppBrand.name) 一起，慢慢吸气、呼气。", symbol: "leaf.fill"))
     }
 
     @objc private func showPet() {
@@ -507,7 +512,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc private func hidePet() {
-        UserDefaults.standard.set(false, forKey: floatingEntryKey)
+        pomodoro.showsFloatingEntry = false
         petWindow?.orderOut(nil)
         configureStatusItem()
         repositionAttachedPanels()
@@ -515,7 +520,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func showToolbox(initialTool: ToolboxTool? = nil) {
         if initialTool == .pomodoro { showFocusPage(); return }
-        let sourceFocusOrigin = focusWindow?.isVisible == true ? focusWindow?.frame.origin : nil
+        let sourceFocusFrame = focusWindow?.isVisible == true ? focusWindow?.frame : nil
         focusWindow?.orderOut(nil)
         // The toolbox is a detail view; don't leave an actionable reminder on top of it.
         bubbleWindow?.orderOut(nil)
@@ -524,24 +529,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         lastSurface = .toolbox(tool)
         if tool == .home || tool == .mood || tool == .meditation || tool == .appBlocker {
             let panel = toolboxWindow ?? makeFocusPanel()
-            panel.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
+            panel.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+            panel.minSize = NSSize(width: 800, height: 600)
+            let pageFrame = sourceFocusFrame ?? panel.frame
             panel.titleVisibility = .hidden
             panel.titlebarAppearsTransparent = true
-            panel.title = "pangpang · 工具箱"
+            panel.title = "\(AppBrand.name) · 专注"
             panel.level = .normal
             panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
             panel.hasShadow = true
             if tool == .appBlocker {
-                panel.title = "pangpang · App 管控"
-                install(AppGuardPage(store: appBlocker,
+                panel.title = "\(AppBrand.name) · App 管控"
+                install(AppGuardPage(store: appBlocker, pomodoro: pomodoro,
                     onBack: { [weak self] in self?.showToolbox(initialTool: .home) }), in: panel)
             } else if tool == .mood {
-                panel.title = "pangpang · 心情记录"
+                panel.title = "\(AppBrand.name) · 心情记录"
                 install(MoodJournalPage(wellbeing: wellbeing,
                     onBack: { [weak self] in self?.showToolbox(initialTool: .home) },
                     onHistory: { [weak self] in self?.showStatistics() }), in: panel)
             } else if tool == .meditation {
-                panel.title = "pangpang · 1 分钟冥想"
+                panel.title = "\(AppBrand.name) · 1 分钟冥想"
                 install(MeditationPage(wellbeing: wellbeing,
                     onBack: { [weak self] in self?.showToolbox(initialTool: .home) },
                     onHistory: { [weak self] in self?.showStatistics() }), in: panel)
@@ -550,8 +557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     onTool: { [weak self] tool in self?.showToolbox(initialTool: tool) },
                     onHistory: { [weak self] in self?.showStatistics() }), in: panel)
             }
-            panel.setFrame(NSRect(origin: sourceFocusOrigin ?? panel.frame.origin,
-                size: NSSize(width: 800, height: 600)), display: true)
+            panel.setFrame(pageFrame, display: true)
             panel.isMovableByWindowBackground = true
             if toolboxWindow == nil && focusWindow == nil { panel.center() }
             constrain(panel)
@@ -580,7 +586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.level = .floating
-        panel.title = "pangpang · 工具箱"
+        panel.title = "\(AppBrand.name) · 专注"
         panel.setContentSize(NSSize(width: 390, height: 510))
         panel.hasShadow = false
         install(content, in: panel)
@@ -608,21 +614,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if returnToFocus { self?.focusWindow?.orderOut(nil) }
                 else { self?.toolboxWindow?.orderOut(nil) }
             },
-            returnTitle: returnToFocus ? "返回专注" : (returnTool == .mood ? "返回心情记录" : returnTool == .meditation ? "返回冥想" : "返回工具箱"),
+            returnTitle: returnToFocus ? "返回沉浸专注" : (returnTool == .mood ? "返回心情记录" : returnTool == .meditation ? "返回冥想" : "返回专注"),
             initialMetric: returnToFocus ? .focus : (returnTool == .mood ? .mood : returnTool == .meditation ? .meditation : .focus)
         )
         let panel = (returnToFocus ? focusWindow : toolboxWindow) ?? makeFocusPanel()
         let wasVisible = panel.isVisible
-        let originalOrigin = panel.frame.origin
-        panel.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
+        let originalFrame = panel.frame
+        panel.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        panel.minSize = NSSize(width: 800, height: 600)
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.level = .normal
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-        panel.title = "pangpang · 数据统计"
+        panel.title = "\(AppBrand.name) · 数据统计"
         panel.hasShadow = true
         install(content, in: panel)
-        panel.setFrame(NSRect(origin: originalOrigin, size: NSSize(width: 800, height: 600)), display: true)
+        panel.setFrame(originalFrame, display: true)
         if !wasVisible { constrain(panel) }
         if returnToFocus { focusWindow = panel } else { toolboxWindow = panel }
         NSApp.activate(ignoringOtherApps: true)
@@ -642,10 +649,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if bubble.action == .startMeditation { self?.startMeditation() }
             self?.bubbleWindow?.orderOut(nil)
         }, onDismiss: { [weak self] in self?.bubbleWindow?.orderOut(nil) })
-        let panel = bubbleWindow ?? makePanel(size: NSSize(width: 244, height: 108))
-        panel.setContentSize(NSSize(width: 244, height: 108))
+        let panel = bubbleWindow ?? makePanel(size: BubbleView.panelSize)
+        panel.setContentSize(BubbleView.panelSize)
         install(content, in: panel)
-        place(panel, above: petWindow, preferredWidth: 244)
+        place(panel, above: petWindow, preferredWidth: BubbleView.panelSize.width)
         panel.orderFrontRegardless()
         bubbleWindow = panel
         let dismissal = DispatchWorkItem { [weak panel] in panel?.orderOut(nil) }
@@ -663,20 +670,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func showFocusPage(editLatestNote: Bool = false) {
+        let sourceFrame = toolboxWindow?.isVisible == true ? toolboxWindow?.frame : nil
         toolboxWindow?.orderOut(nil)
         bubbleWindow?.orderOut(nil)
         lastSurface = .focus
-        let content = FocusExperienceView(store: pomodoro,
+        let content = FocusExperienceView(store: pomodoro, appBlocker: appBlocker,
             onBack: { [weak self] in self?.showToolbox(initialTool: .home) },
             onClose: { [weak self] in self?.focusWindow?.orderOut(nil) },
             onHistory: { [weak self] in self?.showStatistics(returnToFocus: true) },
             editLatestNote: editLatestNote)
         let panel = focusWindow ?? makeFocusPanel()
-        panel.title = "pangpang · 专注时刻"
+        let pageFrame = sourceFrame ?? panel.frame
+        panel.title = "\(AppBrand.name) · 沉浸专注"
         panel.isMovableByWindowBackground = true
         install(content, in: panel)
-        panel.setFrame(NSRect(origin: panel.frame.origin, size: NSSize(width: 800, height: 600)), display: true)
-        if focusWindow == nil { panel.center() }
+        panel.setFrame(pageFrame, display: true)
+        if focusWindow == nil && sourceFrame == nil { panel.center() }
         constrain(panel)
         focusWindow = panel
         NSApp.activate(ignoringOtherApps: true)
@@ -690,7 +699,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         let panel = miniWindow ?? makePanel(size: NSSize(width: 264, height: 92))
-        panel.title = "pangpang · 专注小卡片"
+        panel.title = "\(AppBrand.name) · 悬浮计时卡"
         panel.isMovableByWindowBackground = true
         install(CompactFocusCard(store: pomodoro,
             onOpen: { [weak self] in self?.showFocusPage() },
@@ -730,7 +739,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func repositionAttachedPanels() {
-        if let toolboxWindow, toolboxWindow.isVisible {
+        if let toolboxWindow, toolboxWindow.isVisible, !toolboxWindow.styleMask.contains(.resizable) {
             place(toolboxWindow, above: petWindow, preferredWidth: toolboxWindow.frame.width)
         }
         if let bubbleWindow, bubbleWindow.isVisible {
@@ -758,9 +767,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func makeFocusPanel() -> NSPanel {
         let panel = InputCapablePanel(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
-        panel.title = "pangpang · 专注时刻"
+        panel.title = "\(AppBrand.name) · 沉浸专注"
+        panel.minSize = NSSize(width: 800, height: 600)
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         // fullSizeContentView includes the title bar. Match the complete visual frame
@@ -794,7 +804,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             center.removePendingNotificationRequests(withIdentifiers: staleIDs)
             for time in times {
                 let content = UNMutableNotificationContent()
-                content.title = "pangpang"
+                content.title = AppBrand.name
                 content.body = "一分钟，回来呼吸一下？"
                 content.sound = .default
                 content.categoryIdentifier = "PANGPANG_MEDITATION"
@@ -900,6 +910,9 @@ private final class ToolboxShortcut {
 private final class ClearHostingView<Content: View>: NSHostingView<Content> {
     required init(rootView: Content) {
         super.init(rootView: rootView)
+        // Page content must adapt to the user's frame, not resize the window
+        // when its ideal SwiftUI size changes during navigation.
+        sizingOptions = []
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
         layer?.isOpaque = false

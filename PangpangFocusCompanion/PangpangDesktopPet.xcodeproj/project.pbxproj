@@ -6,6 +6,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10000000000000000000018 = {isa = PBXBuildFile; fileRef = A20000000000000000000018; };
+		A10000000000000000000016 = {isa = PBXBuildFile; fileRef = A20000000000000000000016; };
+		A10000000000000000000017 = {isa = PBXBuildFile; fileRef = A20000000000000000000017; };
 		A10000000000000000000010 /* WellbeingPages.swift */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010; };
 		A10000000000000000000011 /* Resources/mood-calm.png */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011; };
 		A10000000000000000000012 /* Resources/mood-relaxed.png */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012; };
@@ -28,6 +31,9 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A20000000000000000000018 = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/focus-paw-simple-v1.png; sourceTree = "<group>"; };
+		A20000000000000000000016 = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/pangpang-guard-tilt-v1.png; sourceTree = "<group>"; };
+		A20000000000000000000017 = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/pangpang-home-peek-v1.png; sourceTree = "<group>"; };
 		A20000000000000000000010 /* WellbeingPages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellbeingPages.swift; sourceTree = "<group>"; };
 		A20000000000000000000011 /* Resources/mood-calm.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/mood-calm.png; sourceTree = "<group>"; };
 		A20000000000000000000012 /* Resources/mood-relaxed.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/mood-relaxed.png; sourceTree = "<group>"; };
@@ -64,6 +70,9 @@
 			A20000000000000000000013,
 			A20000000000000000000014,
 			A20000000000000000000015,
+			A20000000000000000000016,
+			A20000000000000000000017,
+			A20000000000000000000018,
 			A2000000000000000000000C /* FocusExperience.swift */,
 			A2000000000000000000000E /* BlueToolbox.swift */,
 			A2000000000000000000000F /* focus-paw-blue.png */,
@@ -91,7 +100,7 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		A70000000000000000000002 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000011, A10000000000000000000012, A10000000000000000000013, A10000000000000000000014, A10000000000000000000015, A1000000000000000000000F /* focus-paw-blue.png in Resources */, A1000000000000000000000D /* focus-paw-stamp.png in Resources */, A10000000000000000000008 /* pangpang.png in Resources */, A10000000000000000000009 /* Pangpang.icon in Resources */); runOnlyForDeploymentPostprocessing = 0; };
+		A70000000000000000000002 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000018, A10000000000000000000016, A10000000000000000000017, A10000000000000000000011, A10000000000000000000012, A10000000000000000000013, A10000000000000000000014, A10000000000000000000015, A1000000000000000000000F /* focus-paw-blue.png in Resources */, A1000000000000000000000D /* focus-paw-stamp.png in Resources */, A10000000000000000000008 /* pangpang.png in Resources */, A10000000000000000000009 /* Pangpang.icon in Resources */); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -101,8 +110,8 @@
 /* Begin XCBuildConfiguration section */
 		A90000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; COPY_PHASE_STRIP = NO; DEBUG_INFORMATION_FORMAT = dwarf; ENABLE_TESTABILITY = YES; GCC_C_LANGUAGE_STANDARD = gnu17; MACOSX_DEPLOYMENT_TARGET = 13.0; SDKROOT = macosx; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
 		A90000000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; COPY_PHASE_STRIP = NO; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; GCC_C_LANGUAGE_STANDARD = gnu17; MACOSX_DEPLOYMENT_TARGET = 13.0; SDKROOT = macosx; SWIFT_COMPILATION_MODE = wholemodule; }; name = Release; };
-		A90000000000000000000003 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = Pangpang; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; COMBINE_HIDPI_IMAGES = YES; CURRENT_PROJECT_VERSION = 20; EXECUTABLE_NAME = PangpangDesktopPet; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; MACOSX_DEPLOYMENT_TARGET = 13.0; MARKETING_VERSION = 1.0.0; PRODUCT_BUNDLE_IDENTIFIER = "com.tiantian.pangpang-desktop-pet"; PRODUCT_NAME = pangpang; SWIFT_VERSION = 5.0; }; name = Debug; };
-		A90000000000000000000004 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = Pangpang; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; COMBINE_HIDPI_IMAGES = YES; CURRENT_PROJECT_VERSION = 20; EXECUTABLE_NAME = PangpangDesktopPet; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; MACOSX_DEPLOYMENT_TARGET = 13.0; MARKETING_VERSION = 1.0.0; PRODUCT_BUNDLE_IDENTIFIER = "com.tiantian.pangpang-desktop-pet"; PRODUCT_NAME = pangpang; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_VERSION = 5.0; }; name = Release; };
+		A90000000000000000000003 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = Pangpang; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; COMBINE_HIDPI_IMAGES = YES; CURRENT_PROJECT_VERSION = 26; EXECUTABLE_NAME = PangpangDesktopPet; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; MACOSX_DEPLOYMENT_TARGET = 13.0; MARKETING_VERSION = 1.0.6; PRODUCT_BUNDLE_IDENTIFIER = "com.tiantian.pangpang-desktop-pet"; PRODUCT_NAME = "Pang 大师"; SWIFT_VERSION = 5.0; }; name = Debug; };
+		A90000000000000000000004 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = Pangpang; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; COMBINE_HIDPI_IMAGES = YES; CURRENT_PROJECT_VERSION = 26; EXECUTABLE_NAME = PangpangDesktopPet; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; MACOSX_DEPLOYMENT_TARGET = 13.0; MARKETING_VERSION = 1.0.6; PRODUCT_BUNDLE_IDENTIFIER = "com.tiantian.pangpang-desktop-pet"; PRODUCT_NAME = "Pang 大师"; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_VERSION = 5.0; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */

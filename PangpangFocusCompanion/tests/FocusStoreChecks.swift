@@ -4,16 +4,33 @@ import Foundation
 @MainActor
 enum FocusStoreChecks {
     static func main() throws {
+        assert(AppBrand.name == "Pang 大师" && AppBrand.wordmark == "Pāng 大师")
+        assert(BubbleMessage(text: "提示", actionTitle: "知道了", action: .dismiss).secondaryTitle == nil)
+        assert(BubbleMessage(text: "提示", actionTitle: "冥想", action: .startMeditation).secondaryTitle == "暂时不用")
         let suite = "pangpang.test.focus.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         var clock = Date()
         let store = PomodoroStore(defaults: defaults, now: { clock }, schedulesTimer: false)
+        assert(store.statusText == "Pang 大师 · 未开始")
+        var notificationTitles: [String] = []
+        store.onNotification = { title, _ in notificationTitles.append(title) }
+        assert(!store.showsFloatingEntry)
+        var entryChanges = 0
+        store.onFloatingEntryChange = { entryChanges += 1 }
+        store.showsFloatingEntry = true
+        assert(entryChanges == 1 && store.showsMiniCard)
         store.showsMiniCard = false
+        assert(store.showsFloatingEntry, "Timer card must not change the circular entry")
+        let visibilityReload = PomodoroStore(defaults: defaults, now: { clock }, schedulesTimer: false)
+        assert(visibilityReload.showsFloatingEntry && !visibilityReload.showsMiniCard)
         assert(!PomodoroStore(defaults: defaults, now: { clock }, schedulesTimer: false).showsMiniCard)
         store.draftCategory = "阅读"; store.draftTask = "测试任务"
         store.startFocus()
         let originalID = store.activeSessionID
+        let originalDeadline = store.endDate
+        store.showsFloatingEntry = false
+        assert(store.activeSessionID == originalID && store.endDate == originalDeadline && store.records.isEmpty)
         store.startFocus()
         assert(store.activeSessionID == originalID, "Repeated start must not reset active focus")
         clock = clock.addingTimeInterval(100)
@@ -34,6 +51,7 @@ enum FocusStoreChecks {
         clock = clock.addingTimeInterval(300)
         store.refreshForCurrentTime()
         assert(store.phase == .readyForFocus, "Break must not auto-start focus")
+        assert(notificationTitles.count == 2 && notificationTitles.allSatisfy { $0 == AppBrand.name })
         assert(!store.isRestSession)
         store.updateNote(id: store.records[0].id, note: "成果")
         let restored = PomodoroStore(defaults: defaults, now: { clock }, schedulesTimer: false)

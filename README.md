@@ -3,7 +3,7 @@
 This repository contains independent personal projects.
 
 - [`PangpangCodexDesktopPet/`](PangpangCodexDesktopPet/) - a custom Codex desktop pet.
-- [`PangpangFocusCompanion/`](PangpangFocusCompanion/) - v1.0.0 of the local macOS focus companion, with Pomodoro, meditation, mood notes, App guard, and local-only statistics.
+- [`PangpangFocusCompanion/`](PangpangFocusCompanion/) - Pang 大师 (Pāng 大师), v1.0.6 of the local macOS cat companion Pomodoro app, with meditation, mood notes, App guard, and local-only statistics. Formerly Pangpang Focus Companion.
 - [`BikiniBotomHRV/`](BikiniBotomHRV/) - a personal SwiftUI Apple Watch and iPhone HRV viewer.
 
 ## Pangpang Codex Desktop Pet

@@ -1,6 +1,12 @@
 import Combine
 import Foundation
 
+enum AppBrand {
+    static let name = "Pang 大师"
+    static let wordmark = "Pāng 大师"
+    static let subtitle = "猫咪陪伴番茄钟"
+}
+
 enum PomodoroPhase: String, Codable { case idle, focus, shortBreak, longBreak, readyForFocus, paused }
 enum BubbleAction { case dismiss, startNextFocus, startMeditation }
 
@@ -8,6 +14,15 @@ struct BubbleMessage {
     let text: String
     let actionTitle: String
     let action: BubbleAction
+    var detail: String = ""
+    var symbol: String = "checkmark.shield"
+    var secondaryTitle: String? {
+        switch action {
+        case .dismiss: return nil
+        case .startNextFocus: return "稍后开始"
+        case .startMeditation: return "暂时不用"
+        }
+    }
 }
 
 struct FocusRecord: Codable, Identifiable {
@@ -58,6 +73,13 @@ final class PomodoroStore: ObservableObject {
             onPresentationChange?()
         }
     }
+    @Published var showsFloatingEntry: Bool {
+        didSet {
+            defaults.set(showsFloatingEntry, forKey: "pangpang.floatingEntry.enabled")
+            onFloatingEntryChange?()
+        }
+    }
+    var onFloatingEntryChange: (() -> Void)?
     private var startedAt: Date?
     private let defaults: UserDefaults
     private let now: () -> Date
@@ -80,6 +102,7 @@ final class PomodoroStore: ObservableObject {
         self.defaults = defaults
         self.now = now
         showsMiniCard = defaults.object(forKey: "pangpang.focus.miniCard") as? Bool ?? true
+        showsFloatingEntry = defaults.bool(forKey: "pangpang.floatingEntry.enabled")
         currentTime = now()
         if let data = defaults.data(forKey: settingsKey), let saved = try? JSONDecoder().decode(FocusSettings.self, from: data) {
             settings = saved.validated
@@ -107,12 +130,12 @@ final class PomodoroStore: ObservableObject {
     }
     var statusText: String {
         switch phase {
-        case .idle: return "pangpang · 未开始"
-        case .focus: return "pangpang · 专注中"
-        case .shortBreak: return "pangpang · 休息中"
-        case .longBreak: return "pangpang · 长休息中"
-        case .readyForFocus: return "pangpang · 等待下一轮"
-        case .paused: return "pangpang · 已暂停"
+        case .idle: return "\(AppBrand.name) · 未开始"
+        case .focus: return "\(AppBrand.name) · 专注中"
+        case .shortBreak: return "\(AppBrand.name) · 休息中"
+        case .longBreak: return "\(AppBrand.name) · 长休息中"
+        case .readyForFocus: return "\(AppBrand.name) · 等待下一轮"
+        case .paused: return "\(AppBrand.name) · 已暂停"
         }
     }
     var phaseTitle: String {
@@ -212,11 +235,11 @@ final class PomodoroStore: ObservableObject {
             activeDuration = longBreak ? longBreakDuration : shortBreakDuration
             self.endDate = now().addingTimeInterval(activeDuration)
             onFocusFinished?(record)
-            onNotification?("pangpang", "Take a break.")
+            onNotification?(AppBrand.name, "Take a break.")
         case .shortBreak, .longBreak:
             phase = .readyForFocus; self.endDate = nil
-            onBubble?(BubbleMessage(text: "休息够了没？", actionTitle: "开始下一轮", action: .startNextFocus))
-            onNotification?("pangpang", "休息结束。准备好开始下一轮了吗？")
+            onBubble?(BubbleMessage(text: "休息结束啦", actionTitle: "开始下一轮", action: .startNextFocus, detail: "准备好了，再开始下一轮。", symbol: "play.circle"))
+            onNotification?(AppBrand.name, "休息结束。准备好开始下一轮了吗？")
         default: return
         }
         pausedRemaining = nil

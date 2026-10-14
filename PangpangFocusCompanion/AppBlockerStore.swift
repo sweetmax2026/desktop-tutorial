@@ -20,6 +20,12 @@ final class AppBlockerStore: ObservableObject {
     var onBlockedApplication: ((BlockedApplication) -> Void)?
     var onStateChange: (() -> Void)?
 
+    var headerStatusText: String {
+        if !isEnabled { return "守护未开启" }
+        if blockedApplications.isEmpty { return "守护待配置" }
+        return isBlockingNow ? "正在守护" : "守护已开启"
+    }
+
     private let defaultsKey = "pangpang.app-blocker.snapshot"
     private let defaults: UserDefaults
     private let monitorsApplications: Bool

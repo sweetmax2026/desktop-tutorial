@@ -73,7 +73,7 @@ struct FloatingPetButton: View {
             .frame(width: 68, height: 68)
         )
         .padding(9)
-        .accessibilityLabel("pangpang")
+        .accessibilityLabel(AppBrand.name)
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(Double.random(in: 4...7)))
@@ -86,7 +86,7 @@ struct FloatingPetButton: View {
 
     private var petImage: NSImage {
         guard let url = Bundle.main.url(forResource: "pangpang-head-v1", withExtension: "png"), let image = NSImage(contentsOf: url) else {
-            return NSImage(systemSymbolName: "cat.fill", accessibilityDescription: "pangpang") ?? NSImage()
+            return NSImage(systemSymbolName: "cat.fill", accessibilityDescription: AppBrand.name) ?? NSImage()
         }
         return image
     }
@@ -123,7 +123,7 @@ struct FloatingPetVisual: View {
 
     private var petImage: NSImage {
         guard let url = Bundle.main.url(forResource: "pangpang-head-v1", withExtension: "png"), let image = NSImage(contentsOf: url) else {
-            return NSImage(systemSymbolName: "cat.fill", accessibilityDescription: "pangpang") ?? NSImage()
+            return NSImage(systemSymbolName: "cat.fill", accessibilityDescription: AppBrand.name) ?? NSImage()
         }
         return image
     }
@@ -284,7 +284,7 @@ final class PetButton: NSButton {
         isBordered = false
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
-        setAccessibilityLabel("pangpang")
+        setAccessibilityLabel(AppBrand.name)
         target = self
         action = #selector(pressed)
     }
@@ -408,7 +408,7 @@ private final class PetInteractionView: NSView {
         let hide = menu.addItem(withTitle: "隐藏桌面入口", action: #selector(hidePet), keyEquivalent: "")
         hide.target = self
         menu.addItem(.separator())
-        let quit = menu.addItem(withTitle: "退出 pangpang", action: #selector(quit), keyEquivalent: "")
+        let quit = menu.addItem(withTitle: "退出 \(AppBrand.name)", action: #selector(quit), keyEquivalent: "")
         quit.target = self
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
@@ -488,7 +488,7 @@ struct ToolboxView: View {
 
     private var title: String {
         switch selectedTool {
-        case .home: return "pangpang"
+        case .home: return AppBrand.wordmark
         case .pomodoro: return "番茄钟"
         case .meditation: return "1 分钟冥想"
         case .mood: return "1 分钟情绪记录"
@@ -541,7 +541,7 @@ struct ToolboxView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(ongoingTitle)
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
-                Text(pomodoro.remainingText().map { "剩余 \($0)" } ?? "pangpang 不会催你，只会记得。")
+                Text(pomodoro.remainingText().map { "剩余 \($0)" } ?? "\(AppBrand.name) 不会催你，只会记得。")
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
@@ -717,7 +717,7 @@ struct ToolboxView: View {
                     .frame(width: 40, height: 40)
                     .background(Color.purple.opacity(0.12), in: Circle())
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(appBlocker.isBlockingNow ? "Pangpang 正在守护" : appBlocker.isEnabled ? "已开启，等待专注" : "需要时再打开")
+                    Text(appBlocker.isBlockingNow ? "\(AppBrand.name) 正在守护" : appBlocker.isEnabled ? "已开启，等待专注" : "需要时再打开")
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
                     Text("打开黑名单 App 时，会立刻隐藏并带你回来。")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -942,20 +942,51 @@ private struct MoodOption: Identifiable {
 }
 
 struct BubbleView: View {
+    static let panelSize = NSSize(width: 352, height: 184)
     let message: BubbleMessage
     let onAction: () -> Void
     let onDismiss: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            Text(message.text).font(.system(size: 14, weight: .semibold, design: .rounded))
-            HStack {
-                Button("稍后") { onDismiss() }.buttonStyle(.bordered)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: message.symbol).font(.system(size: 34, weight: .medium))
+                    .foregroundStyle(FocusTheme.accent).frame(width: 40).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(message.text).font(.system(size: 18, weight: .bold, design: .rounded))
+                        .fixedSize(horizontal: false, vertical: true).lineLimit(2)
+                    Text(message.detail).font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(FocusTheme.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }.padding(.top, 12).padding(.trailing, 8)
+            Spacer(minLength: 0)
+            HStack(spacing: 10) {
                 Spacer()
-                Button(message.actionTitle) { onAction() }.buttonStyle(.borderedProminent).tint(Color(red: 0.76, green: 0.31, blue: 0.27))
+                if let title = message.secondaryTitle {
+                    Button(title, action: onDismiss).buttonStyle(HintButtonStyle(primary: false))
+                }
+                Button(message.actionTitle, action: onAction).buttonStyle(HintButtonStyle(primary: true))
             }
         }
-        .padding(14).frame(width: 244, height: 108, alignment: .topLeading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .padding(20).frame(width: 336, height: 168, alignment: .topLeading)
+        .foregroundStyle(FocusTheme.ink)
+        .background(LinearGradient(colors: [Color(red: 0.97, green: 0.98, blue: 1), Color(red: 0.93, green: 0.95, blue: 1)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 20))
+        .overlay(alignment: .topTrailing) {
+            Button(action: onDismiss) { Image(systemName: "xmark").font(.system(size: 12, weight: .semibold)).frame(width: 28, height: 28) }
+                .buttonStyle(.plain).foregroundStyle(FocusTheme.secondary).padding(8).accessibilityLabel("关闭提示")
+        }
+        .padding(8)
+    }
+}
+
+struct HintButtonStyle: ButtonStyle {
+    var primary: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(primary ? .white : FocusTheme.secondary)
+            .padding(.horizontal, 18).frame(height: 34)
+            .background(primary ? FocusTheme.accent : FocusTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+            .opacity(configuration.isPressed ? 0.75 : 1)
     }
 }
