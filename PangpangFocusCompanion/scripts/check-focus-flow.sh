@@ -1,0 +1,24 @@
+#!/bin/zsh
+set -euo pipefail
+script_dir="${0:A:h}"
+project_dir="${script_dir:h}"
+developer_dir="$(xcode-select -p)"
+compiler="${developer_dir}/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+sdk="${developer_dir}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+mkdir -p "${project_dir}/build"
+common=(-parse-as-library -sdk "${sdk}" -target "$(uname -m)-apple-macos13.0" -module-cache-path "${project_dir}/build/ModuleCache")
+"${compiler}" "${common[@]}" "${project_dir}/DailyCount.swift" "${project_dir}/PomodoroStore.swift" "${project_dir}/tests/FocusStoreChecks.swift" -o "${project_dir}/build/FocusStoreChecks"
+"${project_dir}/build/FocusStoreChecks"
+"${compiler}" "${common[@]}" -framework AppKit "${project_dir}/AppBlockerStore.swift" "${project_dir}/tests/AppGuardChecks.swift" -o "${project_dir}/build/AppGuardChecks"
+"${project_dir}/build/AppGuardChecks"
+preview="${project_dir}/build/PangpangFlowPreview.app/Contents"
+mkdir -p "${preview}/MacOS" "${preview}/Resources"
+sources=("${project_dir}"/*.swift)
+sources=("${(@)sources:#*/PangpangDesktopPet.swift}")
+"${compiler}" "${common[@]}" -framework AppKit -framework SwiftUI "${sources[@]}" "${project_dir}/tests/FocusSurfacePreview.swift" -o "${preview}/MacOS/FocusSurfacePreview"
+cp "${project_dir}/tests/FlowPreview-Info.plist" "${preview}/Info.plist"
+cp "${project_dir}"/Resources/*.png "${preview}/Resources/"
+codesign --force --sign - "${preview:h}"
+"${compiler}" "${common[@]}" -framework AppKit -framework SwiftUI "${sources[@]}" "${project_dir}/tests/StatisticsChecks.swift" -o "${project_dir}/build/StatisticsChecks"
+"${project_dir}/build/StatisticsChecks"
+echo "Built isolated preview: ${preview:h}"

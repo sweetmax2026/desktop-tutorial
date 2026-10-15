@@ -881,7 +881,7 @@ struct BreathingFlowerView: View {
             .frame(width: largeStyle ? 300 : 142, height: largeStyle ? 256 : 142)
 
             Text(cueText)
-                .font(.system(size: largeStyle ? 19 : 13, weight: .semibold, design: .rounded))
+                .font(.system(size: largeStyle ? 15 : 13, weight: .medium, design: .rounded))
                 .foregroundStyle(PangpangPalette.ink.opacity(0.72))
                 .contentTransition(.opacity)
         }
@@ -913,7 +913,7 @@ struct BreathingFlowerView: View {
     }
 
     private var cueText: String {
-        if !isActive { return "准备好后，跟着它呼吸" }
+        if !isActive { return largeStyle ? "跟着花朵，慢慢呼吸" : "准备好后，跟着它呼吸" }
         if reduceMotion { return "慢慢呼吸" }
         return isInhaling ? "吸气" : "呼气"
     }

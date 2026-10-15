@@ -20,6 +20,7 @@ struct StatisticsView: View {
     @State private var customEnd = Date()
     @State private var showsDates = false
     @State private var expandedRecord: UUID?
+    @State private var hoveredRecord: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -39,9 +40,8 @@ struct StatisticsView: View {
             }.frame(height: 36)
                 .overlay { Text("数据统计").font(.system(size: 20, weight: .bold)).offset(x: -18).allowsHitTesting(false) }
             Text(rangeTitle).font(.system(size: 21, weight: .semibold)).padding(.top, 18)
-            overview.padding(.top, 16).frame(height: 124)
-            Divider().padding(.vertical, 18)
-            HStack(alignment: .top, spacing: 22) {
+            overview.padding(.top, 16).frame(height: 124).padding(.bottom, 32)
+            HStack(alignment: .top, spacing: 32) {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack {
                         Text(chartTitle).font(.system(size: 19, weight: .semibold))
@@ -51,7 +51,6 @@ struct StatisticsView: View {
                     distributionChart.frame(height: 166)
                     Text(chartCaption).font(.system(size: 11)).foregroundStyle(FocusTheme.secondary)
                 }.frame(width: 400)
-                Divider()
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Text(recordsTitle).font(.system(size: 19, weight: .semibold))
@@ -59,7 +58,7 @@ struct StatisticsView: View {
                         Text(recordsCount).font(.system(size: 12)).foregroundStyle(FocusTheme.secondary)
                     }
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 0) { recordRows }
+                        VStack(alignment: .leading, spacing: 8) { recordRows }
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }.frame(maxWidth: .infinity)
@@ -101,10 +100,8 @@ struct StatisticsView: View {
                     }.accessibilityHidden(true)
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityLabel("查看专注统计")
-            Divider().frame(height: 100)
             metricLink(.meditation, title: period == .today ? "今日冥想" : "冥想", count: meditationDates.count,
                 symbol: "leaf.fill", color: Color(red: 0.43, green: 0.54, blue: 0.30))
-            Divider().frame(height: 100)
             metricLink(.mood, title: period == .today ? "今日情绪" : "情绪", count: moods.count,
                 symbol: "heart.fill", color: Color(red: 0.92, green: 0.47, blue: 0.41))
         }
@@ -147,9 +144,15 @@ struct StatisticsView: View {
         }
         .chartYAxis {
             if metric == .focus {
-                AxisMarks(position: .leading, values: .automatic(desiredCount: 4))
+                AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) {
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(FocusTheme.secondary.opacity(0.14))
+                    AxisValueLabel().foregroundStyle(FocusTheme.secondary)
+                }
             } else {
-                AxisMarks(position: .leading, values: Array(stride(from: 0.0, through: chartMaximum, by: max(1, ceil(chartMaximum / 4)))))
+                AxisMarks(position: .leading, values: Array(stride(from: 0.0, through: chartMaximum, by: max(1, ceil(chartMaximum / 2))))) {
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(FocusTheme.secondary.opacity(0.14))
+                    AxisValueLabel().foregroundStyle(FocusTheme.secondary)
+                }
             }
         }
         .overlay {
@@ -180,8 +183,11 @@ struct StatisticsView: View {
                         Text(duration(record.seconds)).font(.system(size: 12)).fixedSize()
                         Image(systemName: expandedRecord == record.id ? "chevron.down" : "chevron.right")
                             .font(.system(size: 10)).foregroundStyle(FocusTheme.secondary)
-                    }.padding(.vertical, 14).contentShape(Rectangle())
+                    }.padding(.vertical, 14).padding(.horizontal, 8).contentShape(Rectangle())
                 }.buttonStyle(.plain)
+                    .background(hoveredRecord == record.id || expandedRecord == record.id ? FocusTheme.accent.opacity(0.05) : .clear,
+                        in: RoundedRectangle(cornerRadius: 10))
+                    .onHover { hoveredRecord = $0 ? record.id : nil }
                 if expandedRecord == record.id {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("类别：\(record.category)")
@@ -189,7 +195,6 @@ struct StatisticsView: View {
                         if record.estimated { Text("旧记录的时长为估算值。") }
                     }.font(.system(size: 12)).foregroundStyle(FocusTheme.secondary).padding(.bottom, 12)
                 }
-                Divider()
             }
         case .meditation:
             if meditationDates.isEmpty { emptyRecords }
@@ -199,7 +204,6 @@ struct StatisticsView: View {
                     Spacer()
                     Text(recordTime(date)).font(.system(size: 12)).foregroundStyle(FocusTheme.secondary)
                 }.padding(.vertical, 16)
-                Divider()
             }
         case .mood:
             if moods.isEmpty { emptyRecords }
@@ -212,7 +216,6 @@ struct StatisticsView: View {
                     }
                     if let note = entry.note, !note.isEmpty { Text(note).font(.system(size: 13)).foregroundStyle(FocusTheme.secondary) }
                 }.padding(.vertical, 14)
-                Divider()
             }
         }
     }

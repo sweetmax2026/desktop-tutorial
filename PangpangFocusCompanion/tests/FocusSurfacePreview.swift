@@ -51,22 +51,25 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
         wellbeing = WellbeingStore()
         clock = Calendar.current.date(byAdding: .hour, value: 10, to: day)!
         store = PomodoroStore(defaults: defaults, now: { [unowned self] in clock }, schedulesTimer: false)
-        for index in 0..<1 {
+        for index in 0..<2 {
             clock = Calendar.current.date(byAdding: .hour, value: 10 + index, to: day)!
             store.draftTask = index == 0 ? "阅读一章" : "整理方案"
             store.startFocus()
             clock = clock.addingTimeInterval(1500)
             store.refreshForCurrentTime()
+            store.resetToReady()
         }
-        store.showsMiniCard = false
-        clock = clock.addingTimeInterval(13)
+        store.draftTask = ""; store.draftCategory = "工作"
+        store.startFocus()
+        clock = clock.addingTimeInterval(480)
         store.refreshForCurrentTime()
-        store.togglePause()
+        store.endCurrentSession()
+        store.showsMiniCard = false
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
         window.minSize = NSSize(width: 800, height: 600)
-        window.title = "Pangpang Design Preview"
+        window.title = "Pang 大师 · 局部设计预览"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.setFrame(NSRect(x: 0, y: 0, width: 800, height: 600), display: false)
@@ -84,8 +87,9 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(item)
         let tests = NSMenuItem()
         tests.submenu = NSMenu(title: "Tests")
-        for (title, selector) in [("Advance 10 seconds", #selector(advance)), ("Finish focus", #selector(finish)), ("Finish break", #selector(finishBreak))] {
-            let command = NSMenuItem(title: title, action: selector, keyEquivalent: "")
+        for (index, pair) in [("计时前进 10 秒", #selector(advance)), ("完成专注", #selector(finish)), ("完成休息", #selector(finishBreak)), ("准备页", #selector(ready)), ("开始休息", #selector(rest)), ("数据统计页", #selector(statistics)), ("预览专注中", #selector(previewFocus)), ("预览休息中", #selector(previewRest))].enumerated() {
+            let (title, selector) = pair
+            let command = NSMenuItem(title: title, action: selector, keyEquivalent: "\(index + 1)")
             command.target = self
             tests.submenu?.addItem(command)
         }
@@ -152,5 +156,18 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
     @objc func advance() { clock = clock.addingTimeInterval(10); store.refreshForCurrentTime() }
     @objc func finish() { clock = clock.addingTimeInterval(1500); store.refreshForCurrentTime() }
     @objc func finishBreak() { clock = clock.addingTimeInterval(300); store.refreshForCurrentTime() }
+    @objc func ready() { store.resetToReady(); showHome() }
+    @objc func rest() { store.startBreak() }
+    @objc func statistics() { showStats(returnToFocus: false) }
+    @objc func previewFocus() {
+        if store.phase == .focus { showHome(); return }
+        store.resetToReady(); store.startFocus(); showHome()
+    }
+    @objc func previewRest() {
+        if store.isRestSession { showHome(); return }
+        if store.phase != .focus { store.resetToReady(); store.startFocus() }
+        clock = clock.addingTimeInterval(TimeInterval(store.settings.focusMinutes * 60))
+        store.refreshForCurrentTime(); store.startBreak(); showHome()
+    }
     func applicationWillTerminate(_ notification: Notification) { defaults.removePersistentDomain(forName: suite) }
 }

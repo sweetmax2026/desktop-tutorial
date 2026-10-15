@@ -72,7 +72,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self?.updateMiniCard()
             self?.configureStatusItem()
         }
-        pomodoro.onFocusFinished = { [weak self] record in self?.showFocusCompletion(record) }
+        // Completion lives in the same window; the system notification is enough
+        // when the user is working elsewhere. No competing floating result panel.
         pomodoro.onFloatingEntryChange = { [weak self] in
             guard let self else { return }
             if self.floatingEntryEnabled { self.showPet() } else { self.petWindow?.orderOut(nil) }
@@ -85,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self?.showMeditationReminder()
         }
         appBlocker.onBlockedApplication = { [weak self] application in
-            self?.showBubble(BubbleMessage(text: "\(application.name) 已暂时隐藏", actionTitle: "知道了", action: .dismiss, detail: "休息或暂停时可正常使用。"))
+            self?.showBubble(BubbleMessage(text: "\(application.name) 已暂时隐藏", actionTitle: "知道了", action: .dismiss, detail: "休息时可正常使用。"))
         }
         appBlocker.onStateChange = { [weak self] in
             self?.configureStatusItem()
@@ -134,6 +135,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func dismissToolboxForOutsideClick(at point: NSPoint, eventWindow: NSWindow?, existingPanel: NSPanel?, timestamp: TimeInterval) {
         guard let panel = toolboxWindow, panel === existingPanel, panel.isVisible else { return }
+        // The focus lifecycle and its detail pages are regular windows, not flyouts.
+        // Keep them visible when another app or display is clicked. Only legacy
+        // borderless floating panels retain outside-click dismissal.
+        guard !panel.styleMask.contains(.titled) else { return }
         // A delayed observer must not dismiss the destination of the click that
         // presented it. Event timestamps and systemUptime share the boot-time clock.
         guard timestamp > toolboxPresentedAt else { return }
@@ -263,6 +268,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             options: [.foreground]
         )
         center.setNotificationCategories([
+            UNNotificationCategory(identifier: "PANGPANG_COMPLETED", actions: [
+                UNNotificationAction(identifier: "VIEW_FOCUS_RESULT", title: "查看收获", options: [.foreground])
+            ], intentIdentifiers: [], options: []),
             UNNotificationCategory(identifier: "PANGPANG_POMODORO", actions: [nextFocus], intentIdentifiers: [], options: []),
             UNNotificationCategory(identifier: "PANGPANG_MEDITATION", actions: [startMeditation], intentIdentifiers: [], options: [])
         ])
@@ -272,12 +280,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.wellbeing.refreshMeditationReminders()
             }
         }
-        pomodoro.onNotification = { title, body in
+        pomodoro.onNotification = { [weak self] title, body in
+            guard let self else { return }
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
             content.sound = .default
-            content.categoryIdentifier = "PANGPANG_POMODORO"
+            content.categoryIdentifier = self.pomodoro.phase == .completed ? "PANGPANG_COMPLETED" : "PANGPANG_POMODORO"
             UNUserNotificationCenter.current().add(
                 UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
             )
@@ -289,7 +298,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        if response.actionIdentifier == "START_NEXT_FOCUS" {
+        if response.actionIdentifier == "VIEW_FOCUS_RESULT" ||
+            (response.actionIdentifier == UNNotificationDefaultActionIdentifier &&
+             ["PANGPANG_COMPLETED", "PANGPANG_POMODORO"].contains(response.notification.request.content.categoryIdentifier)) {
+            Task { @MainActor [weak self] in self?.showFocusPage() }
+        } else if response.actionIdentifier == "START_NEXT_FOCUS" {
             Task { @MainActor [weak self] in
                 self?.startFocus()
             }
@@ -332,23 +345,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let status = menu.addItem(withTitle: menuBarActivity.isEmpty ? "\(AppBrand.name) · 未开始" : "\(AppBrand.name) · \(menuBarActivity)", action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(.separator())
-        let primary = menu.addItem(withTitle: pomodoro.primaryActionTitle, action: #selector(primaryAction), keyEquivalent: "")
+        let primary = menu.addItem(withTitle: pomodoro.hasActiveSession || pomodoro.phase == .completed ? "查看当前计时与收获" : pomodoro.primaryActionTitle, action: #selector(primaryAction), keyEquivalent: "")
         primary.target = self
-        if pomodoro.canPause {
-            let pause = menu.addItem(withTitle: pomodoro.isPaused ? "继续计时" : "暂停计时", action: #selector(togglePause), keyEquivalent: "")
+        if pomodoro.isPaused {
+            let pause = menu.addItem(withTitle: "继续上次计时", action: #selector(togglePause), keyEquivalent: "")
             pause.target = self
         }
-        if pomodoro.canEnd {
-            let end = menu.addItem(withTitle: "结束本轮", action: #selector(endCurrent), keyEquivalent: "")
+        if pomodoro.phase == .focus {
+            let end = menu.addItem(withTitle: "放弃本轮…", action: #selector(openFocusPage), keyEquivalent: "")
+            end.target = self
+        } else if pomodoro.canEnd {
+            let end = menu.addItem(withTitle: pomodoro.isPaused ? "重置为准备状态" : "结束休息", action: #selector(endCurrent), keyEquivalent: "")
             end.target = self
         }
         menu.addItem(.separator())
-        let focus = menu.addItem(withTitle: "打开沉浸专注", action: #selector(openFocusPage), keyEquivalent: "")
+        let focus = menu.addItem(withTitle: "打开专注页面", action: #selector(openFocusPage), keyEquivalent: "")
         focus.target = self
         let mini = menu.addItem(withTitle: "自动显示悬浮计时卡", action: #selector(toggleMiniCardSetting), keyEquivalent: "")
         mini.target = self
         mini.state = pomodoro.showsMiniCard ? .on : .off
-        if pomodoro.canPause || pomodoro.phase == .readyForFocus {
+        if pomodoro.hasActiveSession || pomodoro.phase == .readyForFocus || pomodoro.phase == .completed {
             let temporary = menu.addItem(withTitle: miniWindow?.isVisible == true ? "本轮收起计时卡" : "本轮显示计时卡", action: #selector(toggleTemporaryMiniCard), keyEquivalent: "")
             temporary.target = self
         }
@@ -375,6 +391,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .focus: return "timer"
         case .shortBreak, .longBreak: return "cup.and.saucer.fill"
         case .readyForFocus: return "play.circle.fill"
+        case .completed: return "pawprint.fill"
         case .paused: return "pause.circle.fill"
         default: return "pawprint.fill"
         }
@@ -433,6 +450,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .shortBreak, .longBreak: focusState = "休息中"
         case .paused: focusState = "已暂停"
         case .readyForFocus: focusState = "待开始"
+        case .completed: focusState = "本轮完成"
         }
         return [focusState, wellbeing.isMeditating ? "冥想中" : ""].filter { !$0.isEmpty }.joined(separator: " · ")
     }
@@ -487,6 +505,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func startFocus() {
         bubbleWindow?.orderOut(nil)
         pomodoro.startFocus()
+        showToolbox(initialTool: .home)
         if floatingEntryEnabled { showPet() }
     }
 
@@ -519,12 +538,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func showToolbox(initialTool: ToolboxTool? = nil) {
-        if initialTool == .pomodoro { showFocusPage(); return }
+        if initialTool == .pomodoro { showToolbox(initialTool: .home); return }
         let sourceFocusFrame = focusWindow?.isVisible == true ? focusWindow?.frame : nil
         focusWindow?.orderOut(nil)
         // The toolbox is a detail view; don't leave an actionable reminder on top of it.
         bubbleWindow?.orderOut(nil)
-        let tool = initialTool ?? lastTool
+        let tool: ToolboxTool = pomodoro.phase == .focus || pomodoro.phase == .completed ? .home : (initialTool ?? lastTool)
         lastTool = tool
         lastSurface = .toolbox(tool)
         if tool == .home || tool == .mood || tool == .meditation || tool == .appBlocker {
@@ -614,7 +633,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if returnToFocus { self?.focusWindow?.orderOut(nil) }
                 else { self?.toolboxWindow?.orderOut(nil) }
             },
-            returnTitle: returnToFocus ? "返回沉浸专注" : (returnTool == .mood ? "返回心情记录" : returnTool == .meditation ? "返回冥想" : "返回专注"),
+            returnTitle: returnToFocus ? "返回专注" : (returnTool == .mood ? "返回心情记录" : returnTool == .meditation ? "返回冥想" : "返回专注"),
             initialMetric: returnToFocus ? .focus : (returnTool == .mood ? .mood : returnTool == .meditation ? .meditation : .focus)
         )
         let panel = (returnToFocus ? focusWindow : toolboxWindow) ?? makeFocusPanel()
@@ -639,9 +658,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func showBubble(_ bubble: BubbleMessage) {
         bubbleDismissal?.cancel()
-        // At the end of a break, the reminder is the single next action. Hiding the
-        // detail view prevents the two messages from competing for attention.
-        if bubble.action == .startNextFocus || bubble.action == .startMeditation {
+        // A reminder may replace a legacy flyout, never a regular focus window.
+        if (bubble.action == .startNextFocus || bubble.action == .startMeditation),
+           toolboxWindow?.styleMask.contains(.titled) != true {
             toolboxWindow?.orderOut(nil)
         }
         let content = BubbleView(message: bubble, onAction: { [weak self] in
@@ -670,30 +689,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func showFocusPage(editLatestNote: Bool = false) {
-        let sourceFrame = toolboxWindow?.isVisible == true ? toolboxWindow?.frame : nil
-        toolboxWindow?.orderOut(nil)
-        bubbleWindow?.orderOut(nil)
-        lastSurface = .focus
-        let content = FocusExperienceView(store: pomodoro, appBlocker: appBlocker,
-            onBack: { [weak self] in self?.showToolbox(initialTool: .home) },
-            onClose: { [weak self] in self?.focusWindow?.orderOut(nil) },
-            onHistory: { [weak self] in self?.showStatistics(returnToFocus: true) },
-            editLatestNote: editLatestNote)
-        let panel = focusWindow ?? makeFocusPanel()
-        let pageFrame = sourceFrame ?? panel.frame
-        panel.title = "\(AppBrand.name) · 沉浸专注"
-        panel.isMovableByWindowBackground = true
-        install(content, in: panel)
-        panel.setFrame(pageFrame, display: true)
-        if focusWindow == nil && sourceFrame == nil { panel.center() }
-        constrain(panel)
-        focusWindow = panel
-        NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
+        showToolbox(initialTool: .home)
     }
 
     private func updateMiniCard() {
-        guard pomodoro.canPause || pomodoro.phase == .readyForFocus,
+        guard pomodoro.hasActiveSession || pomodoro.phase == .readyForFocus || pomodoro.phase == .completed,
               (miniVisibilityOverride ?? pomodoro.showsMiniCard) && !miniTemporarilyHidden else {
             miniWindow?.orderOut(nil)
             return
@@ -723,19 +723,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         miniWindow = panel
         panel.orderFrontRegardless()
-    }
-
-    private func showFocusCompletion(_ record: FocusRecord) {
-        bubbleDismissal?.cancel()
-        let panel = bubbleWindow ?? makePanel(size: NSSize(width: 356, height: 172))
-        panel.setContentSize(NSSize(width: 356, height: 172))
-        install(FocusCompletionView(store: pomodoro, record: record, onNote: { [weak self] in self?.showFocusPage(editLatestNote: true) }), in: panel)
-        place(panel, above: petWindow, preferredWidth: 356)
-        bubbleWindow = panel
-        panel.orderFrontRegardless()
-        let dismissal = DispatchWorkItem { [weak panel] in panel?.orderOut(nil) }
-        bubbleDismissal = dismissal
-        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: dismissal)
     }
 
     private func repositionAttachedPanels() {
@@ -769,7 +756,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let panel = InputCapablePanel(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
-        panel.title = "\(AppBrand.name) · 沉浸专注"
+        panel.title = "\(AppBrand.name) · 专注"
         panel.minSize = NSSize(width: 800, height: 600)
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true

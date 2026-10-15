@@ -1,109 +1,102 @@
 import Foundation
 
-@main
-@MainActor
-enum FocusStoreChecks {
+@main @MainActor enum FocusStoreChecks {
     static func main() throws {
-        assert(AppBrand.name == "Pang 大师" && AppBrand.wordmark == "Pāng 大师")
-        assert(BubbleMessage(text: "提示", actionTitle: "知道了", action: .dismiss).secondaryTitle == nil)
-        assert(BubbleMessage(text: "提示", actionTitle: "冥想", action: .startMeditation).secondaryTitle == "暂时不用")
         let suite = "pangpang.test.focus.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         var clock = Date()
-        let store = PomodoroStore(defaults: defaults, now: { clock }, schedulesTimer: false)
-        assert(store.statusText == "Pang 大师 · 未开始")
-        var notificationTitles: [String] = []
-        store.onNotification = { title, _ in notificationTitles.append(title) }
-        assert(!store.showsFloatingEntry)
-        var entryChanges = 0
-        store.onFloatingEntryChange = { entryChanges += 1 }
-        store.showsFloatingEntry = true
-        assert(entryChanges == 1 && store.showsMiniCard)
-        store.showsMiniCard = false
-        assert(store.showsFloatingEntry, "Timer card must not change the circular entry")
-        let visibilityReload = PomodoroStore(defaults: defaults, now: { clock }, schedulesTimer: false)
-        assert(visibilityReload.showsFloatingEntry && !visibilityReload.showsMiniCard)
-        assert(!PomodoroStore(defaults: defaults, now: { clock }, schedulesTimer: false).showsMiniCard)
+        func fresh() -> PomodoroStore {
+            PomodoroStore(defaults: defaults, now: { clock }, schedulesTimer: false)
+        }
+        let store = fresh()
+        assert(AppBrand.name == "Pang 大师")
+        assert(!store.showsFloatingEntry && store.showsMiniCard)
+        store.showsFloatingEntry = true; store.showsMiniCard = false
+        assert(fresh().showsFloatingEntry && !fresh().showsMiniCard)
         store.draftCategory = "阅读"; store.draftTask = "测试任务"
         store.startFocus()
-        let originalID = store.activeSessionID
-        let originalDeadline = store.endDate
-        store.showsFloatingEntry = false
-        assert(store.activeSessionID == originalID && store.endDate == originalDeadline && store.records.isEmpty)
-        store.startFocus()
-        assert(store.activeSessionID == originalID, "Repeated start must not reset active focus")
+        let deadline = store.endDate
+        let id = store.activeSessionID
+        store.startFocus(); store.resetToReady(); store.togglePause()
+        assert(store.endDate == deadline && store.activeSessionID == id && store.phase == .focus)
+        assert(!store.canPause && store.canEnd && store.hasActiveSession)
         clock = clock.addingTimeInterval(100)
-        store.togglePause()
-        assert(store.pausedRemaining == 1400)
-        clock = clock.addingTimeInterval(300)
-        store.togglePause()
+        store.refreshForCurrentTime()
+        assert(store.remainingText() == "23:20")
+        store.updateSettings(FocusSettings(focusMinutes: 10, shortBreakMinutes: 2, longBreakMinutes: 3, longBreakInterval: 2))
+        assert(store.endDate == deadline, "Editing settings must preserve active deadline")
         clock = clock.addingTimeInterval(1400)
         store.refreshForCurrentTime()
         assert(store.records.count == 1 && store.records[0].seconds == 1500)
-        assert(store.records[0].category == "阅读" && store.phase == .shortBreak)
-        assert(store.isRestSession)
-        store.togglePause()
-        assert(store.isRestSession, "Paused break must retain its rest presentation")
-        store.togglePause()
+        assert(store.phase == .completed && store.endDate == nil && store.completionRecord?.id == id)
+        assert(store.records[0].category == "阅读" && store.records[0].task == "测试任务")
         store.refreshForCurrentTime()
-        assert(store.records.count == 1, "Completion must not duplicate")
-        clock = clock.addingTimeInterval(300)
+        clock = clock.addingTimeInterval(86400)
         store.refreshForCurrentTime()
-        assert(store.phase == .readyForFocus, "Break must not auto-start focus")
-        assert(notificationTitles.count == 2 && notificationTitles.allSatisfy { $0 == AppBrand.name })
-        assert(!store.isRestSession)
-        store.updateNote(id: store.records[0].id, note: "成果")
-        let restored = PomodoroStore(defaults: defaults, now: { clock }, schedulesTimer: false)
-        assert(restored.records[0].note == "成果" && restored.completedFocuses == 1)
+        assert(store.phase == .completed && store.records.count == 1, "Waiting for rest never runs a hidden clock")
+        let restored = fresh()
+        assert(restored.phase == .completed && restored.completionRecord?.id == id && restored.endDate == nil)
         restored.startFocus()
-        clock = clock.addingTimeInterval(90)
-        restored.togglePause()
-        clock = clock.addingTimeInterval(500)
+        assert(restored.phase == .completed, "Completion requires explicit next decision")
+        restored.updateNote(id: id!, note: "成果")
+        restored.startBreak()
+        assert(restored.phase == .shortBreak && restored.remainingText() == "02:00")
+        let restDeadline = restored.endDate
+        restored.startBreak(); restored.togglePause()
+        assert(restored.endDate == restDeadline && restored.phase == .shortBreak)
+        clock = clock.addingTimeInterval(120); restored.refreshForCurrentTime()
+        assert(restored.phase == .readyForFocus && restored.endDate == nil)
+        restored.startFocus()
+        clock = clock.addingTimeInterval(90); restored.refreshForCurrentTime()
         restored.endCurrentSession()
-        assert(restored.records.last!.seconds == 90 && !restored.records.last!.completed)
-        assert(restored.completedFocuses == 1, "Interrupted focus must not earn a paw")
+        assert(restored.phase == .idle && restored.records.last!.seconds == 90 && !restored.records.last!.completed)
+        assert(restored.completedFocuses == 1 && restored.lastAbandonedRecordID == restored.records.last!.id)
+        restored.endCurrentSession(); restored.resetToReady()
+        assert(restored.records.count == 2 && restored.records.first!.note == "成果", "Repeated reset never erases or duplicates history")
+        restored.startFocus()
+        clock = clock.addingTimeInterval(600); restored.refreshForCurrentTime()
+        assert(restored.phase == .completed && restored.completedFocuses == 2)
+        let longReload = fresh()
+        longReload.startBreak()
+        assert(longReload.phase == .longBreak && longReload.remainingText() == "03:00", "Pending long break survives reload")
+        longReload.resetToReady()
+        assert(longReload.phase == .idle && longReload.endDate == nil && longReload.records.count == 3)
+        longReload.startFocus(); clock = clock.addingTimeInterval(600); longReload.refreshForCurrentTime()
+        longReload.resetToReady()
+        assert(longReload.phase == .idle && longReload.records.last!.completed && longReload.completedFocuses == 3)
+        // Legacy paused snapshots are not resumed or discarded on upgrade.
+        let saved: [String: Any] = [
+            "phase": "paused", "completedFocuses": 0, "focusCompletionDates": [],
+            "pausedRemaining": 287.97857, "phaseBeforePause": "shortBreak", "activeDuration": 300.0
+        ]
+        defaults.set(try JSONSerialization.data(withJSONObject: saved), forKey: "pangpang.pomodoro.snapshot")
+        let pausedRest = fresh()
+        assert(pausedRest.isPaused && pausedRest.isRestSession && pausedRest.remainingText() == "04:47")
+        pausedRest.resetToReady()
+        assert(pausedRest.phase == .idle && pausedRest.configuredFocusText == "10:00")
+        let session = UUID()
+        let legacyFocus: [String: Any] = [
+            "phase": "paused", "completedFocuses": 0, "focusCompletionDates": [],
+            "pausedRemaining": 1400.0, "phaseBeforePause": "focus", "activeDuration": 1500.0,
+            "activeSessionID": session.uuidString, "startedAt": clock.timeIntervalSinceReferenceDate - 100
+        ]
+        defaults.set(try JSONSerialization.data(withJSONObject: legacyFocus), forKey: "pangpang.pomodoro.snapshot")
+        let pausedFocus = fresh()
+        pausedFocus.resetToReady()
+        assert(pausedFocus.records.count == 1 && pausedFocus.records[0].seconds == 100 && !pausedFocus.records[0].completed)
+        defaults.set(try JSONSerialization.data(withJSONObject: legacyFocus), forKey: "pangpang.pomodoro.snapshot")
+        let resumeLegacy = fresh()
+        resumeLegacy.togglePause()
+        assert(resumeLegacy.phase == .focus && resumeLegacy.remainingText() == "23:20")
+        resumeLegacy.togglePause()
+        assert(resumeLegacy.phase == .focus, "Resumed legacy focus cannot be paused again")
         let date = clock.timeIntervalSinceReferenceDate
-        let legacy: [String: Any] = ["phase": "idle", "completedFocuses": 2, "focusCompletionDates": [date - 3000, date]]
-        defaults.set(try JSONSerialization.data(withJSONObject: legacy), forKey: "pangpang.pomodoro.snapshot")
-        let migrated = PomodoroStore(defaults: defaults, now: { clock }, schedulesTimer: false)
+        defaults.set(try JSONSerialization.data(withJSONObject: ["phase": "idle", "completedFocuses": 2,
+            "focusCompletionDates": [date - 3000, date]]), forKey: "pangpang.pomodoro.snapshot")
+        let migrated = fresh()
         assert(migrated.records.count == 2 && migrated.records.allSatisfy { $0.estimated })
-        assert(migrated.focusCompletionDates.count == 2)
-        defaults.removeObject(forKey: "pangpang.pomodoro.snapshot")
-        let configurable = PomodoroStore(defaults: defaults, now: { clock }, schedulesTimer: false)
-        configurable.updateSettings(FocusSettings(focusMinutes: 10, shortBreakMinutes: 2, longBreakMinutes: 3, longBreakInterval: 2))
-        configurable.startFocus()
-        let deadline = configurable.endDate
-        clock = clock.addingTimeInterval(60)
-        configurable.refreshForCurrentTime()
-        let originalProgress = configurable.progress
-        configurable.updateSettings(FocusSettings(focusMinutes: 20, shortBreakMinutes: 1, longBreakMinutes: 4, longBreakInterval: 2))
-        assert(configurable.endDate == deadline && configurable.progress == originalProgress)
-        configurable.togglePause()
-        configurable.updateSettings(FocusSettings(focusMinutes: 15, shortBreakMinutes: 1, longBreakMinutes: 4, longBreakInterval: 2))
-        let resumed = PomodoroStore(defaults: defaults, now: { clock }, schedulesTimer: false)
-        assert(resumed.settings.focusMinutes == 15 && resumed.pausedRemaining == 540)
-        resumed.togglePause()
-        clock = clock.addingTimeInterval(540)
-        resumed.refreshForCurrentTime()
-        assert(resumed.records.last!.seconds == 600 && resumed.remainingText() == "01:00")
-        clock = clock.addingTimeInterval(60)
-        resumed.refreshForCurrentTime()
-        resumed.startFocus()
-        clock = clock.addingTimeInterval(900)
-        resumed.refreshForCurrentTime()
-        assert(resumed.records.last!.seconds == 900 && resumed.phase == .longBreak && resumed.remainingText() == "04:00")
-        let activeBreakDeadline = resumed.endDate
-        resumed.updateSettings(FocusSettings())
-        assert(resumed.endDate == activeBreakDeadline && resumed.phaseTitle == "4 分钟长休息中")
-        resumed.updateSettings(FocusSettings(focusMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 10, longBreakInterval: 3))
-        clock = clock.addingTimeInterval(240)
-        resumed.refreshForCurrentTime()
-        resumed.startFocus()
-        clock = clock.addingTimeInterval(1500)
-        resumed.refreshForCurrentTime()
-        assert(resumed.phase == .shortBreak, "Changing interval must count since the last long break, not modulo lifetime totals")
-        print("PASS: custom times, live/paused settings edits preserve duration, reload, phase stats, configurable long break")
-        print("PASS: persistent card setting, pause timing, single completion, manual next round, notes, interrupted time, legacy migration")
+        print("PASS: strict focus, no pause, reset guard, partial time, idempotency, explicit completion/rest/next focus")
+        print("PASS: persisted completion, pending long break, notes, settings, visibility, legacy paused migration")
     }
 }

@@ -24,18 +24,29 @@ let bitmap = NSBitmapImageRep(
 NSGraphicsContext.saveGraphicsState()
 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
 
-let inset = size * 0.045
-let circleRect = NSRect(x: inset, y: inset, width: size - inset * 2, height: size - inset * 2)
-NSColor(calibratedRed: 0.66, green: 0.83, blue: 0.94, alpha: 1).setFill()
-NSBezierPath(ovalIn: circleRect).fill()
-NSColor(calibratedRed: 0.48, green: 0.69, blue: 0.83, alpha: 1).setStroke()
-let border = NSBezierPath(ovalIn: circleRect.insetBy(dx: size * 0.008, dy: size * 0.008))
-border.lineWidth = max(1, size * 0.022)
-border.stroke()
-
-let petSide = size * 0.78
-let petRect = NSRect(x: (size - petSide) / 2, y: (size - petSide) / 2, width: petSide, height: petSide)
-pet.draw(in: petRect, from: NSRect(origin: .zero, size: pet.size), operation: .sourceOver, fraction: 1)
+// Notification Center always wraps an app icon in its own rounded-square tile.
+// Keep pangpang transparent here and enlarge her inside the safe area, so the
+// system tile is the only visible container instead of a square inside a square.
+let sourcePetRect = NSRect(
+    x: pet.size.width * 0.23,
+    y: pet.size.height * 0.08,
+    width: pet.size.width * 0.60,
+    height: pet.size.height * 0.83
+)
+let petRect = NSRect(
+    x: size * 0.13,
+    y: size * 0.04,
+    width: size * 0.74,
+    height: size * 0.92
+)
+NSGraphicsContext.current?.saveGraphicsState()
+let petShadow = NSShadow()
+petShadow.shadowColor = NSColor.black.withAlphaComponent(0.18)
+petShadow.shadowBlurRadius = size * 0.018
+petShadow.shadowOffset = NSSize(width: 0, height: -size * 0.008)
+petShadow.set()
+pet.draw(in: petRect, from: sourcePetRect, operation: .sourceOver, fraction: 1)
+NSGraphicsContext.current?.restoreGraphicsState()
 
 NSGraphicsContext.restoreGraphicsState()
 guard let data = bitmap.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else { exit(1) }

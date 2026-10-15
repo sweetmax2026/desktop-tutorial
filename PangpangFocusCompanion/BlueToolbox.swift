@@ -11,7 +11,7 @@ struct AppGuardPage: View {
 
 enum SettingsSection { case timing, guardApps }
 
-private struct SettingsActionStyle: ButtonStyle {
+struct SettingsActionStyle: ButtonStyle {
     var primary = false
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.system(size: 15, weight: .medium)).frame(minWidth: primary ? 56 : 0)
@@ -36,7 +36,7 @@ private struct SettingsGuardContents: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 7) {
                     Text("开启 App 管控").font(.system(size: 15, weight: .medium))
-                    Text("仅专注中生效，休息和暂停自动放行。")
+                    Text("仅专注中生效，休息时自动放行。")
                         .font(.system(size: 12)).foregroundStyle(FocusTheme.secondary)
                 }
                 Spacer()
@@ -226,107 +226,14 @@ struct FocusSettingsView: View {
     }
 }
 
+// Both the home entry and former immersive entry now host the same lifecycle.
 struct BlueToolboxHome: View {
-    @State private var showsSettings = false
     @ObservedObject var store: PomodoroStore
     @ObservedObject var wellbeing: WellbeingStore
     @ObservedObject var appBlocker: AppBlockerStore
     let onTool: (ToolboxTool) -> Void
     let onHistory: () -> Void
     var body: some View {
-        Group {
-            if showsSettings {
-                FocusSettingsView(store: store, appBlocker: appBlocker, returnTitle: "返回专注") {
-                    withAnimation(.easeInOut(duration: 0.16)) { showsSettings = false }
-                }.transition(.opacity)
-            } else {
-        GeometryReader { geometry in
-            ZStack(alignment: .top) {
-                FocusTheme.background
-                HStack {
-                    Text("专注").font(.system(size: 17, weight: .semibold))
-                    Spacer()
-                    Label(appBlocker.headerStatusText, systemImage: "checkmark.shield")
-                        .font(.system(size: 12, weight: .medium)).foregroundStyle(FocusTheme.secondary)
-                        .help("配置管控 App，请前往设置中的专注守护。")
-                        .accessibilityIdentifier("home.guardStatus")
-                    Divider().frame(height: 18).padding(.horizontal, 6)
-                    FocusSettingsButton { withAnimation(.easeInOut(duration: 0.16)) { showsSettings = true } }
-                }.padding(.horizontal, 32).padding(.top, 36)
-                VStack(spacing: 0) {
-                    Text(store.canPause ? store.phaseTitle : "留一点时间，给重要的事。")
-                        .font(.system(size: 15, weight: .medium)).foregroundStyle(Color(red: 0.18, green: 0.28, blue: 0.48))
-                        .padding(.horizontal, 16).frame(height: 32)
-                        .background(FocusTheme.accent.opacity(0.1), in: Capsule())
-                    Text(store.remainingText() ?? store.configuredFocusText)
-                        .font(.system(size: 92, weight: .semibold, design: .rounded)).monospacedDigit()
-                        .tracking(-3).frame(height: 114).padding(.top, 10)
-                    Text(store.isRestSession ? "休息一下" : store.canPause && !store.activeTask.isEmpty ? store.activeTask : store.canPause ? store.activeCategory : store.draftCategory)
-                        .font(.system(size: 18, weight: .medium)).foregroundStyle(FocusTheme.secondary)
-                        .lineLimit(1).frame(maxWidth: 350).frame(height: 30)
-                    HStack(spacing: 20) {
-                        Button { onTool(.pomodoro) } label: {
-                            Text(store.canPause ? "进入沉浸专注" : "开始专注").frame(width: 216, height: 60)
-                        }.buttonStyle(FocusPillStyle(fill: FocusTheme.accent, ink: .white))
-                            .accessibilityIdentifier("toolbox.focus")
-                        if store.canPause {
-                            Button { store.togglePause() } label: {
-                                Image(systemName: store.isPaused ? "play.fill" : "pause.fill")
-                                    .font(.system(size: 20, weight: .semibold)).frame(width: 58, height: 58)
-                                    .foregroundStyle(Color(red: 0.20, green: 0.32, blue: 0.55))
-                                    .background(FocusTheme.accent.opacity(0.1), in: Circle())
-                            }.buttonStyle(.plain).accessibilityLabel(store.isPaused ? "继续计时" : "暂停计时")
-                        }
-                    }.padding(.top, 24)
-                }.position(x: geometry.size.width / 2, y: geometry.size.height * 0.36)
-                HStack(spacing: 16) {
-                    tool("1 分钟冥想", detail: "今日 \(wellbeing.meditationCountToday) 次", symbol: "leaf.fill", color: Color(red: 0.43, green: 0.54, blue: 0.30), tool: .meditation)
-                    Divider().frame(height: 40)
-                    tool("情绪记录", detail: "今日 \(wellbeing.moodCountToday()) 次", symbol: "heart.fill", color: Color(red: 0.92, green: 0.47, blue: 0.41), tool: .mood)
-                }.frame(width: min(360, geometry.size.width - 120), height: 56)
-                    .position(x: geometry.size.width / 2, y: geometry.size.height * 0.665)
-                ZStack(alignment: .topTrailing) {
-                    RoundedRectangle(cornerRadius: 28).fill(FocusTheme.shelf).padding(.bottom, -28)
-                    HStack(spacing: 14) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("今日收获").font(.system(size: 16, weight: .semibold))
-                            HStack(spacing: 8) {
-                                ForEach(0..<min(3, store.focusCountToday), id: \.self) { index in FocusPaw(size: 40).rotationEffect(.degrees(index % 2 == 0 ? -10 : 8)) }
-                                Text("\(store.focusCountToday) 轮 · \(store.todayMinutes) 分钟")
-                                    .font(.system(size: 17, weight: .medium)).fixedSize()
-                            }.frame(height: 46)
-                        }
-                        Spacer()
-                        Button(action: onHistory) {
-                            HStack(spacing: 10) {
-                                Text("查看记录")
-                                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
-                            }.font(.system(size: 15, weight: .medium)).frame(height: 40)
-                        }.buttonStyle(.plain)
-                    }.padding(.horizontal, 50).padding(.top, 24)
-                }.frame(height: 134).clipped()
-                    .overlay(alignment: .topTrailing) {
-                        FocusCat(size: 88, asset: "pangpang-home-peek-v1").padding(.trailing, 48).offset(y: -54)
-                            .allowsHitTesting(false).accessibilityHidden(true)
-                    }.frame(maxHeight: .infinity, alignment: .bottom)
-            }.foregroundStyle(FocusTheme.ink)
-        }.ignoresSafeArea()
-            }
-        }
-    }
-    private func tool(_ title: String, detail: String, symbol: String, color: Color, tool: ToolboxTool) -> some View {
-        Button { onTool(tool) } label: {
-            HStack(spacing: 10) {
-                Image(systemName: symbol).font(.system(size: 23)).foregroundStyle(color)
-                    .frame(width: 52, height: 52).background(color.opacity(0.14), in: Circle())
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(title).font(.system(size: 15, weight: .semibold)).fixedSize()
-                    HStack(spacing: 5) {
-                        Text(detail).lineLimit(1)
-                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .medium))
-                    }.font(.system(size: 12)).foregroundStyle(FocusTheme.secondary)
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-        }.buttonStyle(.plain)
+        FocusFlowScreen(store: store, appBlocker: appBlocker, onTool: onTool, onHistory: onHistory)
     }
 }

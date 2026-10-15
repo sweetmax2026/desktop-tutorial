@@ -7,7 +7,7 @@ enum AppBrand {
     static let subtitle = "猫咪陪伴番茄钟"
 }
 
-enum PomodoroPhase: String, Codable { case idle, focus, shortBreak, longBreak, readyForFocus, paused }
+enum PomodoroPhase: String, Codable { case idle, focus, shortBreak, longBreak, readyForFocus, paused, completed }
 enum BubbleAction { case dismiss, startNextFocus, startMeditation }
 
 struct BubbleMessage {
@@ -60,6 +60,9 @@ final class PomodoroStore: ObservableObject {
     @Published private var currentTime = Date()
     @Published private(set) var records: [FocusRecord] = []
     @Published private(set) var activeSessionID: UUID?
+    @Published private(set) var completionRecordID: UUID?
+    @Published private(set) var lastAbandonedRecordID: UUID?
+    private var pendingLongBreak = false
     @Published var draftTask = ""
     @Published var draftCategory = "专注"
     @Published private(set) var activeTask = ""
@@ -117,8 +120,12 @@ final class PomodoroStore: ObservableObject {
         phase == .shortBreak || phase == .longBreak ||
         (phase == .paused && (phaseBeforePause == .shortBreak || phaseBeforePause == .longBreak))
     }
-    var canPause: Bool { phase == .focus || phase == .shortBreak || phase == .longBreak || phase == .paused }
-    var canEnd: Bool { canPause }
+    // Kept for source compatibility. New sessions cannot be paused from any surface.
+    var canPause: Bool { false }
+    var hasActiveSession: Bool { phase == .focus || isRestSession || isPaused }
+    var canEnd: Bool { hasActiveSession }
+    var completionRecord: FocusRecord? { records.first { $0.id == completionRecordID } }
+    var lastAbandonedRecord: FocusRecord? { records.first { $0.id == lastAbandonedRecordID } }
     var primaryActionTitle: String { phase == .readyForFocus ? "开始下一轮专注" : "开始 \(settings.focusMinutes) 分钟专注" }
     var configuredFocusText: String { String(format: "%02d:00", settings.focusMinutes) }
     func updateSettings(_ value: FocusSettings) {
@@ -136,6 +143,7 @@ final class PomodoroStore: ObservableObject {
         case .longBreak: return "\(AppBrand.name) · 长休息中"
         case .readyForFocus: return "\(AppBrand.name) · 等待下一轮"
         case .paused: return "\(AppBrand.name) · 已暂停"
+        case .completed: return "\(AppBrand.name) · 本轮完成"
         }
     }
     var phaseTitle: String {
@@ -146,6 +154,7 @@ final class PomodoroStore: ObservableObject {
         case .longBreak: return "\(Int(activeDuration / 60)) 分钟长休息中"
         case .readyForFocus: return "准备下一轮"
         case .paused: return "已暂停"
+        case .completed: return "这一轮，完成了"
         }
     }
 
@@ -170,11 +179,14 @@ final class PomodoroStore: ObservableObject {
         let now = now ?? currentTime
         let remaining = phase == .paused ? pausedRemaining : endDate.map { max(0, $0.timeIntervalSince(now)) }
         guard let remaining else { return nil }
-        return String(format: "%02d:%02d", Int(remaining) / 60, Int(remaining) % 60)
+        // Preserve the existing second display for fractional legacy snapshots.
+        let seconds = Int(remaining)
+        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
 
     func startFocus() {
         guard phase == .idle || phase == .readyForFocus else { return }
+        completionRecordID = nil; lastAbandonedRecordID = nil
         currentTime = now()
         startedAt = currentTime
         activeSessionID = UUID()
@@ -186,32 +198,51 @@ final class PomodoroStore: ObservableObject {
     }
 
     func togglePause() {
+        // Only resume an explicitly paused legacy snapshot. Never introduce new pauses.
+        guard phase == .paused else { return }
         if phase == .paused {
             guard let pausedRemaining else { return }
             phase = phaseBeforePause ?? .focus
             endDate = now().addingTimeInterval(pausedRemaining)
             self.pausedRemaining = nil
             phaseBeforePause = nil
-        } else if let endDate {
-            phaseBeforePause = phase
-            pausedRemaining = max(0, endDate.timeIntervalSince(now()))
-            self.endDate = nil
-            phase = .paused
         }
         announceStateChanged()
     }
 
+    func startBreak() {
+        guard phase == .completed else { return }
+        currentTime = now()
+        phase = pendingLongBreak ? .longBreak : .shortBreak
+        activeDuration = pendingLongBreak ? longBreakDuration : shortBreakDuration
+        completionRecordID = nil
+        endDate = currentTime.addingTimeInterval(activeDuration)
+        announceStateChanged()
+    }
+
+    /// Reset is never a shortcut around the deliberate focus abandonment gesture.
+    func resetToReady() {
+        guard phase != .focus else { return }
+        endCurrentSession()
+    }
+
     func endCurrentSession() {
+        if phase == .focus, let endDate, endDate <= now() {
+            refreshForCurrentTime()
+            return
+        }
         if phase == .focus || (phase == .paused && phaseBeforePause == .focus) {
             let remaining = pausedRemaining ?? endDate.map { max(0, $0.timeIntervalSince(now())) } ?? activeDuration
             if let startedAt, let activeSessionID, activeDuration - remaining >= 1 {
                 records.append(FocusRecord(id: activeSessionID, startedAt: startedAt, endedAt: now(),
                     seconds: min(activeDuration, max(0, activeDuration - remaining)), category: activeCategory,
                     task: activeTask, completed: false, estimated: false, note: ""))
+                lastAbandonedRecordID = activeSessionID
             }
         }
         activeSessionID = nil; startedAt = nil
         phase = .idle; endDate = nil; pausedRemaining = nil; phaseBeforePause = nil
+        completionRecordID = nil
         announceStateChanged()
     }
 
@@ -231,11 +262,12 @@ final class PomodoroStore: ObservableObject {
             focusesSinceLongBreak += 1
             let longBreak = focusesSinceLongBreak >= settings.longBreakInterval
             if longBreak { focusesSinceLongBreak = 0 }
-            phase = longBreak ? .longBreak : .shortBreak
-            activeDuration = longBreak ? longBreakDuration : shortBreakDuration
-            self.endDate = now().addingTimeInterval(activeDuration)
+            pendingLongBreak = longBreak
+            completionRecordID = record.id
+            phase = .completed
+            self.endDate = nil
             onFocusFinished?(record)
-            onNotification?(AppBrand.name, "Take a break.")
+            onNotification?(AppBrand.name, "这一轮完成了，猫爪已收好。准备好了再休息。")
         case .shortBreak, .longBreak:
             phase = .readyForFocus; self.endDate = nil
             onBubble?(BubbleMessage(text: "休息结束啦", actionTitle: "开始下一轮", action: .startNextFocus, detail: "准备好了，再开始下一轮。", symbol: "play.circle"))
@@ -247,7 +279,7 @@ final class PomodoroStore: ObservableObject {
     }
 
     func persist() {
-        let snapshot = Snapshot(phase: phase, completedFocuses: completedFocuses, focusCompletionDates: focusCompletionDates, endDate: endDate, pausedRemaining: pausedRemaining, phaseBeforePause: phaseBeforePause, records: records, startedAt: startedAt, activeSessionID: activeSessionID, activeTask: activeTask, activeCategory: activeCategory, activeDuration: activeDuration, focusesSinceLongBreak: focusesSinceLongBreak)
+        let snapshot = Snapshot(phase: phase, completedFocuses: completedFocuses, focusCompletionDates: focusCompletionDates, endDate: endDate, pausedRemaining: pausedRemaining, phaseBeforePause: phaseBeforePause, records: records, startedAt: startedAt, activeSessionID: activeSessionID, activeTask: activeTask, activeCategory: activeCategory, activeDuration: activeDuration, focusesSinceLongBreak: focusesSinceLongBreak, completionRecordID: completionRecordID, pendingLongBreak: pendingLongBreak)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         defaults.set(data, forKey: defaultsKey)
     }
@@ -262,6 +294,8 @@ final class PomodoroStore: ObservableObject {
         }
         startedAt = snapshot.startedAt
         activeSessionID = snapshot.activeSessionID
+        completionRecordID = snapshot.completionRecordID
+        pendingLongBreak = snapshot.pendingLongBreak ?? false
         activeTask = snapshot.activeTask ?? ""
         activeCategory = snapshot.activeCategory ?? "专注"
         let restoredPhase = phase == .paused ? (phaseBeforePause ?? .focus) : phase
@@ -293,5 +327,7 @@ final class PomodoroStore: ObservableObject {
         let activeCategory: String?
         let activeDuration: TimeInterval?
         let focusesSinceLongBreak: Int?
+        let completionRecordID: UUID?
+        let pendingLongBreak: Bool?
     }
 }

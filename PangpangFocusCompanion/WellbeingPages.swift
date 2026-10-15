@@ -89,8 +89,8 @@ struct MoodJournalPage: View {
                         guard canSave else { return }
                         wellbeing.recordMood(emoji: selected?.emoji ?? "📝", name: selected?.rawValue ?? "随手记", note: note)
                         selected = nil; note = ""; saved = true
-                    } label: { Text("保存记录").frame(width: 160, height: 42) }
-                        .buttonStyle(FocusPillStyle(fill: FocusTheme.accent, ink: .white))
+                    } label: { Text("保存记录") }
+                        .buttonStyle(SettingsActionStyle(primary: true))
                         .disabled(!canSave).opacity(canSave ? 1 : 0.5).accessibilityIdentifier("mood.save")
                 }.padding(.top, 16)
                 Spacer(minLength: 12)
@@ -135,12 +135,14 @@ struct MeditationPage: View {
                 ZStack(alignment: .bottomTrailing) {
                     VStack(spacing: 10) {
                         BreathingFlowerView(isActive: wellbeing.isMeditating, sessionID: wellbeing.meditationSessionID, largeStyle: true)
-                        Text(wellbeing.meditationRemainingText ?? "给自己一分钟")
-                            .font(.system(size: 15, weight: .medium)).monospacedDigit().foregroundStyle(FocusTheme.secondary)
+                        if let remaining = wellbeing.meditationRemainingText {
+                            Text(remaining).font(.system(size: 15, weight: .medium)).monospacedDigit()
+                                .foregroundStyle(FocusTheme.secondary)
+                        }
                         Button { wellbeing.startMeditation() } label: {
-                            Text(wellbeing.isMeditating ? "重新开始 1 分钟" : "开始 1 分钟冥想").frame(width: 224, height: 46)
-                        }.buttonStyle(FocusPillStyle(fill: FocusTheme.accent, ink: .white))
-                            .accessibilityIdentifier("meditation.start").padding(.top, 10)
+                            Text(wellbeing.isMeditating ? "重新开始" : "开始").frame(width: 160, height: 40)
+                        }.buttonStyle(FocusPillStyle(fill: FocusTheme.accent, ink: .white, fontSize: 17))
+                            .accessibilityIdentifier("meditation.start").padding(.top, 14)
                         Spacer(minLength: 18)
                     }.frame(maxWidth: .infinity).padding(.top, 10)
                     FocusCat(size: 108).padding(.trailing, 36).offset(y: 12).accessibilityHidden(true)
@@ -185,7 +187,7 @@ struct MeditationPage: View {
                 }
                 Spacer()
                 Button("完成") { withAnimation(.easeInOut(duration: 0.16)) { showsReminders = false } }
-                    .buttonStyle(.plain).foregroundStyle(FocusTheme.accent).accessibilityIdentifier("meditation.reminders.done")
+                    .buttonStyle(SettingsActionStyle(primary: true)).accessibilityIdentifier("meditation.reminders.done")
             }
             ScrollView {
                 VStack(spacing: 0) {
@@ -213,8 +215,8 @@ struct MeditationPage: View {
                 Button {
                     let components = Calendar.current.dateComponents([.hour, .minute], from: reminderTime)
                     wellbeing.addMeditationTime(hour: components.hour ?? 0, minute: components.minute ?? 0)
-                } label: { Label("添加提醒", systemImage: "plus").frame(width: 130, height: 38) }
-                    .buttonStyle(FocusPillStyle(fill: FocusTheme.accent, ink: .white))
+                } label: { Label("添加提醒", systemImage: "plus") }
+                    .buttonStyle(SettingsActionStyle()).accessibilityIdentifier("meditation.reminders.add")
                 Spacer()
             }
             Text(wellbeing.isMeditating ? "呼吸计时继续进行，修改提醒不会中断冥想。" : "提醒每天重复，关闭 App 后由系统通知提醒。")
