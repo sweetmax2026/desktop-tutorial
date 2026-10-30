@@ -170,15 +170,21 @@ struct FocusSettingsView: View {
     }
     private var timingContents: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("计时设置").font(.system(size: 16, weight: .semibold)).padding(.bottom, 10)
-            durationRow("专注时长", detail: "设置一次专注的时长。", value: $draft.focusMinutes, range: 1...180, unit: "分钟")
-            durationRow("短休息", detail: "设置短休息的时长。", value: $draft.shortBreakMinutes, range: 1...60, unit: "分钟")
-            durationRow("长休息", detail: "设置长休息的时长。", value: $draft.longBreakMinutes, range: 1...120, unit: "分钟")
-            durationRow("长休息间隔", detail: "设置多少轮后进行一次长休息。", value: $draft.longBreakInterval, range: 1...12, unit: "轮", prefix: "每")
-            Divider().padding(.top, 12).padding(.bottom, 18)
-            Text("显示设置").font(.system(size: 16, weight: .semibold)).padding(.bottom, 2)
-            visibilityRow("圆形悬浮入口", detail: "桌面猫头像入口。", value: $floatingEntry, id: "settings.floatingEntry")
-            visibilityRow("悬浮计时卡", detail: "专注与休息时显示剩余时间。", value: $miniCard, id: "settings.miniCard")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("计时设置").font(.system(size: 16, weight: .semibold)).padding(.bottom, 10)
+                    durationRow("专注时长", detail: "设置一次专注的时长。", value: $draft.focusMinutes, range: 1...180, unit: "分钟")
+                    durationRow("短休息", detail: "设置短休息的时长。", value: $draft.shortBreakMinutes, range: 1...60, unit: "分钟")
+                    durationRow("长休息", detail: "设置长休息的时长。", value: $draft.longBreakMinutes, range: 1...120, unit: "分钟")
+                    durationRow("长休息间隔", detail: "按当天完成轮数计算，每天重新累计。", value: $draft.longBreakInterval, range: 1...12, unit: "轮", prefix: "每")
+                    visibilityRow("自动开始休息", detail: "专注完成后，自动开始短休息或长休息。", value: $draft.autoStartBreak, id: "settings.autoStartBreak")
+                    visibilityRow("自动开始下一轮", detail: "休息结束后，沿用当前任务开始专注。", value: $draft.autoStartFocus, id: "settings.autoStartFocus")
+                    Divider().padding(.top, 12).padding(.bottom, 18)
+                    Text("显示设置").font(.system(size: 16, weight: .semibold)).padding(.bottom, 2)
+                    visibilityRow("圆形悬浮入口", detail: "桌面猫头像入口。", value: $floatingEntry, id: "settings.floatingEntry")
+                    visibilityRow("悬浮计时卡", detail: "专注与休息时显示剩余时间。", value: $miniCard, id: "settings.miniCard")
+                }.padding(.trailing, 8)
+            }
             Spacer(minLength: 14)
             HStack(spacing: 12) {
                 Text("新设置用于下一阶段，当前计时不变。").font(.system(size: 11)).foregroundStyle(FocusTheme.secondary)

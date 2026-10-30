@@ -2,6 +2,34 @@ import AppKit
 import Combine
 import Foundation
 import UniformTypeIdentifiers
+import OSLog
+
+@MainActor
+protocol GuardApplication: AnyObject {
+    var bundleIdentifier: String? { get }
+    var processIdentifier: pid_t { get }
+    var isHidden: Bool { get }
+    var isTerminated: Bool { get }
+    func guardHide() -> Bool
+    func guardActivate() -> Bool
+}
+
+extension NSRunningApplication: GuardApplication {
+    func guardHide() -> Bool { hide() }
+    func guardActivate() -> Bool { activate(options: [.activateAllWindows]) }
+}
+
+@MainActor
+struct GuardEnvironment {
+    var frontmost: () -> (any GuardApplication)?
+    var running: () -> [any GuardApplication]
+    var fallback: () -> (any GuardApplication)?
+    var now: () -> Date = Date.init
+    static var live: Self {
+        Self(frontmost: { NSWorkspace.shared.frontmostApplication },
+             running: { NSWorkspace.shared.runningApplications }, fallback: { NSRunningApplication.current })
+    }
+}
 
 struct BlockedApplication: Codable, Identifiable, Equatable {
     let bundleIdentifier: String
@@ -18,6 +46,7 @@ final class AppBlockerStore: ObservableObject {
     @Published private(set) var isFocusActive = false
 
     var onBlockedApplication: ((BlockedApplication) -> Void)?
+    var onBlockFailed: ((BlockedApplication) -> Void)?
     var onStateChange: (() -> Void)?
 
     var headerStatusText: String {
@@ -29,11 +58,19 @@ final class AppBlockerStore: ObservableObject {
     private let defaultsKey = "pangpang.app-blocker.snapshot"
     private let defaults: UserDefaults
     private let monitorsApplications: Bool
-    private var activationObserver: NSObjectProtocol?
-    private var lastAllowedApplication: NSRunningApplication?
+    private var observers: [NSObjectProtocol] = []
+    private var watchdog: Timer?
+    private let environment: GuardEnvironment
+    private var lastAllowedApplication: (any GuardApplication)?
     private var lastBlockedBundleIdentifier: String?
     private var lastBlockedDate = Date.distantPast
-    private var isHandlingBlockedApplication = false
+    private var pendingAttempts: [pid_t: Int] = [:]
+    private var confirmedHidden: Set<pid_t> = []
+    // Apps already open when enforcement starts are hidden without a bubble,
+    // including asynchronous hide confirmation and retries.
+    private var silentInitialPIDs: Set<pid_t> = []
+    private var lastFailureDate = Date.distantPast
+    private let logger = Logger(subsystem: "com.tiantian.pangpang-desktop-pet", category: "app-guard")
 
     private let protectedBundleIdentifiers: Set<String> = [
         "com.apple.finder",
@@ -42,21 +79,21 @@ final class AppBlockerStore: ObservableObject {
         "com.apple.SystemUIServer"
     ]
 
-    init(defaults: UserDefaults = .standard, monitorsApplications: Bool = true) {
+    init(defaults: UserDefaults = .standard, monitorsApplications: Bool = true, environment: GuardEnvironment? = nil) {
+        let environment = environment ?? .live
         self.defaults = defaults
         self.monitorsApplications = monitorsApplications
+        self.environment = environment
         restore()
         if monitorsApplications { startMonitoring() }
-        if let application = NSWorkspace.shared.frontmostApplication,
-           application.bundleIdentifier != Bundle.main.bundleIdentifier {
+        if let application = environment.frontmost(), isAllowedReturnTarget(application) {
             lastAllowedApplication = application
         }
     }
 
     deinit {
-        if let activationObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(activationObserver)
-        }
+        watchdog?.invalidate()
+        for observer in observers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
     }
 
     var statusText: String {
@@ -71,7 +108,7 @@ final class AppBlockerStore: ObservableObject {
         guard isEnabled != enabled else { return }
         isEnabled = enabled
         persistAndNotify()
-        if isBlockingNow { checkFrontmostApplication() }
+        updateEnforcement()
     }
 
     func toggleEnabled() { setEnabled(!isEnabled) }
@@ -80,7 +117,7 @@ final class AppBlockerStore: ObservableObject {
         guard isFocusActive != active else { return }
         isFocusActive = active
         onStateChange?()
-        if isBlockingNow { checkFrontmostApplication() }
+        updateEnforcement()
     }
 
     func chooseApplications() {
@@ -102,6 +139,7 @@ final class AppBlockerStore: ObservableObject {
     func remove(_ application: BlockedApplication) {
         blockedApplications.removeAll { $0.id == application.id }
         persistAndNotify()
+        updateEnforcement()
     }
 
     func icon(for application: BlockedApplication) -> NSImage {
@@ -134,56 +172,99 @@ final class AppBlockerStore: ObservableObject {
 
         blockedApplications = applications.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         persistAndNotify()
-        if isBlockingNow { checkFrontmostApplication() }
+        updateEnforcement()
     }
 
     private func startMonitoring() {
-        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-            Task { @MainActor [weak self] in self?.handleActivatedApplication(application) }
+        for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.didUnhideApplicationNotification,
+                     NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didWakeNotification] {
+            observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                let interactionPID = (name == NSWorkspace.didActivateApplicationNotification ||
+                    name == NSWorkspace.didUnhideApplicationNotification) ? application?.processIdentifier : nil
+                Task { @MainActor [weak self] in
+                    self?.reconcileApplications(interactionPID: interactionPID)
+                }
+            })
         }
     }
 
-    private func checkFrontmostApplication() {
+    private func updateEnforcement() {
+        pendingAttempts.removeAll(); confirmedHidden.removeAll()
+        silentInitialPIDs.removeAll()
+        watchdog?.invalidate(); watchdog = nil
+        guard isBlockingNow else { return }
+        silentInitialPIDs = Set(environment.running().filter { application in
+            !application.isTerminated && !application.isHidden &&
+                blockedApplications.contains(where: { $0.bundleIdentifier == application.bundleIdentifier })
+        }.map(\.processIdentifier))
         guard monitorsApplications else { return }
-        guard let application = NSWorkspace.shared.frontmostApplication else { return }
-        handleActivatedApplication(application)
+        watchdog = Timer(timeInterval: 0.4, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.reconcileApplications() }
+        }
+        RunLoop.main.add(watchdog!, forMode: .common)
+        reconcileApplications()
     }
 
-    private func handleActivatedApplication(_ application: NSRunningApplication) {
-        guard let bundleIdentifier = application.bundleIdentifier else { return }
-        let ownIdentifier = Bundle.main.bundleIdentifier
-        let blocked = blockedApplications.first { $0.bundleIdentifier == bundleIdentifier }
+    private func isAllowedReturnTarget(_ application: any GuardApplication) -> Bool {
+        guard let id = application.bundleIdentifier, !application.isTerminated else { return false }
+        return id != Bundle.main.bundleIdentifier && !protectedBundleIdentifiers.contains(id) &&
+            !blockedApplications.contains(where: { $0.bundleIdentifier == id })
+    }
 
-        guard isBlockingNow, let blocked else {
-            if blocked == nil, bundleIdentifier != ownIdentifier, !protectedBundleIdentifiers.contains(bundleIdentifier) {
-                lastAllowedApplication = application
+    // Injectable environment lets tests exercise retries without touching real apps.
+    func reconcileApplications(interactionPID: pid_t? = nil) {
+        if let interactionPID { silentInitialPIDs.remove(interactionPID) }
+        let frontmost = environment.frontmost()
+        if let frontmost, isAllowedReturnTarget(frontmost) { lastAllowedApplication = frontmost }
+        guard isBlockingNow else { return }
+        let running = environment.running()
+        let livePIDs = Set(running.filter { !$0.isTerminated }.map(\.processIdentifier))
+        pendingAttempts = pendingAttempts.filter { livePIDs.contains($0.key) }
+        confirmedHidden.formIntersection(livePIDs)
+        silentInitialPIDs.formIntersection(livePIDs)
+        for application in running where !application.isTerminated {
+            guard let id = application.bundleIdentifier,
+                  id != Bundle.main.bundleIdentifier, !protectedBundleIdentifiers.contains(id),
+                  let blocked = blockedApplications.first(where: { $0.bundleIdentifier == id }) else { continue }
+            let pid = application.processIdentifier
+            if application.isHidden {
+                if pendingAttempts[pid] != nil { reportHidden(blocked, pid: pid) }
+                continue
             }
-            return
+            confirmedHidden.remove(pid)
+            // Activating a safe destination first avoids racing an app's reopen handler.
+            if frontmost?.processIdentifier == pid {
+                if let lastAllowedApplication, isAllowedReturnTarget(lastAllowedApplication) {
+                    _ = lastAllowedApplication.guardActivate()
+                } else if let fallback = environment.fallback(), fallback.bundleIdentifier != id {
+                    _ = fallback.guardActivate()
+                }
+            }
+            let attempts = (pendingAttempts[pid] ?? 0) + 1
+            pendingAttempts[pid] = attempts
+            let accepted = application.guardHide()
+            if application.isHidden { reportHidden(blocked, pid: pid) }
+            else if attempts >= 3, !silentInitialPIDs.contains(pid),
+                    environment.now().timeIntervalSince(lastFailureDate) > 8 {
+                lastFailureDate = environment.now()
+                logger.error("Hide not verified: bundle=\(id, privacy: .public), accepted=\(accepted), attempts=\(attempts)")
+                onBlockFailed?(blocked)
+            }
         }
+    }
 
-        guard !isHandlingBlockedApplication else { return }
-        isHandlingBlockedApplication = true
-
-        _ = application.hide()
-        if let lastAllowedApplication,
-           !lastAllowedApplication.isTerminated,
-           lastAllowedApplication.bundleIdentifier != bundleIdentifier {
-            lastAllowedApplication.activate(options: [.activateAllWindows])
-        }
-
-        let now = Date()
-        if lastBlockedBundleIdentifier != bundleIdentifier || now.timeIntervalSince(lastBlockedDate) > 2.5 {
-            lastBlockedBundleIdentifier = bundleIdentifier
+    private func reportHidden(_ application: BlockedApplication, pid: pid_t) {
+        pendingAttempts[pid] = nil
+        guard confirmedHidden.insert(pid).inserted else { return }
+        logger.info("Hide verified: bundle=\(application.bundleIdentifier, privacy: .public), pid=\(pid)")
+        guard silentInitialPIDs.remove(pid) == nil else { return }
+        let now = environment.now()
+        if lastBlockedBundleIdentifier != application.bundleIdentifier || now.timeIntervalSince(lastBlockedDate) > 2.5 {
+            lastBlockedBundleIdentifier = application.bundleIdentifier
             lastBlockedDate = now
-            onBlockedApplication?(blocked)
+            onBlockedApplication?(application)
         }
-
-        DispatchQueue.main.async { [weak self] in self?.isHandlingBlockedApplication = false }
     }
 
     private func persistAndNotify() {

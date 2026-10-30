@@ -8,7 +8,7 @@ enum AppBrand {
 }
 
 enum PomodoroPhase: String, Codable { case idle, focus, shortBreak, longBreak, readyForFocus, paused, completed }
-enum BubbleAction { case dismiss, startNextFocus, startMeditation }
+enum BubbleAction { case dismiss, startNextFocus, startMeditation, viewFocusResult }
 
 struct BubbleMessage {
     let text: String
@@ -21,6 +21,7 @@ struct BubbleMessage {
         case .dismiss: return nil
         case .startNextFocus: return "稍后开始"
         case .startMeditation: return "暂时不用"
+        case .viewFocusResult: return "稍后查看"
         }
     }
 }
@@ -42,11 +43,34 @@ struct FocusSettings: Codable, Equatable {
     var shortBreakMinutes = 5
     var longBreakMinutes = 10
     var longBreakInterval = 4
+    var autoStartBreak = false
+    var autoStartFocus = false
+
+    init(focusMinutes: Int = 25, shortBreakMinutes: Int = 5, longBreakMinutes: Int = 10,
+         longBreakInterval: Int = 4, autoStartBreak: Bool = false, autoStartFocus: Bool = false) {
+        self.focusMinutes = focusMinutes; self.shortBreakMinutes = shortBreakMinutes
+        self.longBreakMinutes = longBreakMinutes; self.longBreakInterval = longBreakInterval
+        self.autoStartBreak = autoStartBreak; self.autoStartFocus = autoStartFocus
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case focusMinutes, shortBreakMinutes, longBreakMinutes, longBreakInterval, autoStartBreak, autoStartFocus
+    }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(focusMinutes: try values.decodeIfPresent(Int.self, forKey: .focusMinutes) ?? 25,
+            shortBreakMinutes: try values.decodeIfPresent(Int.self, forKey: .shortBreakMinutes) ?? 5,
+            longBreakMinutes: try values.decodeIfPresent(Int.self, forKey: .longBreakMinutes) ?? 10,
+            longBreakInterval: try values.decodeIfPresent(Int.self, forKey: .longBreakInterval) ?? 4,
+            autoStartBreak: try values.decodeIfPresent(Bool.self, forKey: .autoStartBreak) ?? false,
+            autoStartFocus: try values.decodeIfPresent(Bool.self, forKey: .autoStartFocus) ?? false)
+    }
     var validated: FocusSettings {
         FocusSettings(focusMinutes: min(180, max(1, focusMinutes)),
             shortBreakMinutes: min(60, max(1, shortBreakMinutes)),
             longBreakMinutes: min(120, max(1, longBreakMinutes)),
-            longBreakInterval: min(12, max(1, longBreakInterval)))
+            longBreakInterval: min(12, max(1, longBreakInterval)),
+            autoStartBreak: autoStartBreak, autoStartFocus: autoStartFocus)
     }
 }
 
@@ -89,7 +113,9 @@ final class PomodoroStore: ObservableObject {
     var onPresentationChange: (() -> Void)?
     var onFocusFinished: ((FocusRecord) -> Void)?
 
-    var onBubble: ((BubbleMessage) -> Void)?
+    var onBubble: ((BubbleMessage) -> Void)? {
+        didSet { emitCompletionReminderIfNeeded() }
+    }
     var onNotification: ((String, String) -> Void)?
     var onStateChange: (() -> Void)?
 
@@ -186,6 +212,11 @@ final class PomodoroStore: ObservableObject {
 
     func startFocus() {
         guard phase == .idle || phase == .readyForFocus else { return }
+        beginFocusSession()
+        announceStateChanged()
+    }
+
+    private func beginFocusSession() {
         completionRecordID = nil; lastAbandonedRecordID = nil
         currentTime = now()
         startedAt = currentTime
@@ -194,7 +225,6 @@ final class PomodoroStore: ObservableObject {
         activeCategory = draftCategory
         activeDuration = focusDuration
         phase = .focus; pausedRemaining = nil; endDate = now().addingTimeInterval(focusDuration)
-        announceStateChanged()
     }
 
     func togglePause() {
@@ -212,12 +242,15 @@ final class PomodoroStore: ObservableObject {
 
     func startBreak() {
         guard phase == .completed else { return }
+        beginBreakSession()
+        announceStateChanged()
+    }
+
+    private func beginBreakSession() {
         currentTime = now()
         phase = pendingLongBreak ? .longBreak : .shortBreak
         activeDuration = pendingLongBreak ? longBreakDuration : shortBreakDuration
-        completionRecordID = nil
         endDate = currentTime.addingTimeInterval(activeDuration)
-        announceStateChanged()
     }
 
     /// Reset is never a shortcut around the deliberate focus abandonment gesture.
@@ -259,23 +292,55 @@ final class PomodoroStore: ObservableObject {
             completedFocuses += 1
             focusCompletionDates.append(endDate)
             if focusCompletionDates.count > 365 { focusCompletionDates.removeFirst(focusCompletionDates.count - 365) }
-            focusesSinceLongBreak += 1
-            let longBreak = focusesSinceLongBreak >= settings.longBreakInterval
-            if longBreak { focusesSinceLongBreak = 0 }
-            pendingLongBreak = longBreak
+            // Count by the session's completion day, never a cross-day persisted
+            // counter. A session spanning midnight belongs to its completion day.
+            let dailyCount = completedFocusCount(on: endDate)
+            focusesSinceLongBreak = dailyCount % settings.longBreakInterval
+            pendingLongBreak = dailyCount.isMultiple(of: settings.longBreakInterval)
             completionRecordID = record.id
             phase = .completed
             self.endDate = nil
             onFocusFinished?(record)
-            onNotification?(AppBrand.name, "这一轮完成了，猫爪已收好。准备好了再休息。")
+            if settings.autoStartBreak { beginBreakSession() }
+            onNotification?(AppBrand.name, settings.autoStartBreak
+                ? "这一轮完成了，猫爪已收好。已自动开始休息。"
+                : "这一轮完成了，猫爪已收好。准备好了再休息。")
         case .shortBreak, .longBreak:
             phase = .readyForFocus; self.endDate = nil
-            onBubble?(BubbleMessage(text: "休息结束啦", actionTitle: "开始下一轮", action: .startNextFocus, detail: "准备好了，再开始下一轮。", symbol: "play.circle"))
-            onNotification?(AppBrand.name, "休息结束。准备好开始下一轮了吗？")
+            if settings.autoStartFocus {
+                // Continue the persisted task, including after relaunch. Never backfill
+                // unattended rounds: the new deadline starts at the current time.
+                draftTask = activeTask; draftCategory = activeCategory
+                beginFocusSession()
+            }
+            onBubble?(BubbleMessage(text: settings.autoStartFocus ? "下一轮，开始了" : "休息结束啦",
+                actionTitle: settings.autoStartFocus ? "知道了" : "开始下一轮",
+                action: settings.autoStartFocus ? .dismiss : .startNextFocus,
+                detail: settings.autoStartFocus ? "休息结束，已自动开始 \(settings.focusMinutes) 分钟专注。" : "准备好了，再开始下一轮。",
+                symbol: "play.circle"))
+            onNotification?(AppBrand.name, settings.autoStartFocus
+                ? "休息结束，已自动开始下一轮专注。" : "休息结束。准备好开始下一轮了吗？")
         default: return
         }
         pausedRemaining = nil
         announceStateChanged()
+        emitCompletionReminderIfNeeded()
+    }
+
+    private func emitCompletionReminderIfNeeded() {
+        let automaticRest = isRestSession && settings.autoStartBreak
+        guard phase == .completed || automaticRest, let record = completionRecord, let onBubble else { return }
+        let key = "pangpang.focus.lastCompletionReminder"
+        guard defaults.string(forKey: key) != record.id.uuidString else { return }
+        defaults.set(record.id.uuidString, forKey: key)
+        onBubble(BubbleMessage(text: "这一轮，完成了", actionTitle: automaticRest ? "知道了" : "查看收获",
+            action: automaticRest ? .dismiss : .viewFocusResult,
+            detail: "已专注 \(Int(record.seconds / 60)) 分钟，猫爪已收好。" +
+                (automaticRest ? "已自动开始休息。" : "准备好了再休息。"), symbol: "pawprint.fill"))
+    }
+
+    private func completedFocusCount(on date: Date) -> Int {
+        records.filter { $0.completed && Calendar.current.isDate($0.endedAt, inSameDayAs: date) }.count
     }
 
     func persist() {
@@ -300,7 +365,12 @@ final class PomodoroStore: ObservableObject {
         activeCategory = snapshot.activeCategory ?? "专注"
         let restoredPhase = phase == .paused ? (phaseBeforePause ?? .focus) : phase
         activeDuration = snapshot.activeDuration ?? (restoredPhase == .longBreak ? 600 : restoredPhase == .shortBreak ? 300 : 1500)
-        focusesSinceLongBreak = snapshot.focusesSinceLongBreak ?? (completedFocuses % 4)
+        focusesSinceLongBreak = completedFocusCount(on: now()) % settings.longBreakInterval
+        // Repair an old, not-yet-started rest choice without changing an active
+        // break's duration/deadline, historical records, or an active focus.
+        if phase == .completed, let record = completionRecord {
+            pendingLongBreak = completedFocusCount(on: record.endedAt).isMultiple(of: settings.longBreakInterval)
+        }
         refreshForCurrentTime()
     }
 

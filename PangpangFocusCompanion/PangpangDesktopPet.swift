@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Carbon
 @preconcurrency import UserNotifications
+import OSLog
 
 @main
 @MainActor
@@ -72,8 +73,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self?.updateMiniCard()
             self?.configureStatusItem()
         }
-        // Completion lives in the same window; the system notification is enough
-        // when the user is working elsewhere. No competing floating result panel.
+        // The local completion card is independent of system notification policy.
+        // Its action opens the existing result; it never starts a break itself.
         pomodoro.onFloatingEntryChange = { [weak self] in
             guard let self else { return }
             if self.floatingEntryEnabled { self.showPet() } else { self.petWindow?.orderOut(nil) }
@@ -87,6 +88,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         appBlocker.onBlockedApplication = { [weak self] application in
             self?.showBubble(BubbleMessage(text: "\(application.name) 已暂时隐藏", actionTitle: "知道了", action: .dismiss, detail: "休息时可正常使用。"))
+        }
+        appBlocker.onBlockFailed = { [weak self] application in
+            self?.showBubble(BubbleMessage(text: "暂未成功隐藏 \(application.name)", actionTitle: "知道了", action: .dismiss,
+                detail: "正在重试。请先回到专注，休息时可正常使用。", symbol: "exclamationmark.shield"))
         }
         appBlocker.onStateChange = { [weak self] in
             self?.configureStatusItem()
@@ -274,7 +279,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             UNNotificationCategory(identifier: "PANGPANG_POMODORO", actions: [nextFocus], intentIdentifiers: [], options: []),
             UNNotificationCategory(identifier: "PANGPANG_MEDITATION", actions: [startMeditation], intentIdentifiers: [], options: [])
         ])
-        center.requestAuthorization(options: [.alert, .sound]) { [weak self] granted, _ in
+        center.getNotificationSettings { settings in
+            Logger(subsystem: "com.tiantian.pangpang-desktop-pet", category: "notifications").info(
+                "Notification settings: authorization=\(settings.authorizationStatus.rawValue), alert=\(settings.alertSetting.rawValue), sound=\(settings.soundSetting.rawValue)")
+        }
+        center.requestAuthorization(options: [.alert, .sound]) { [weak self] granted, error in
+            if let error {
+                let failure = error as NSError
+                Logger(subsystem: "com.tiantian.pangpang-desktop-pet", category: "notifications").error(
+                    "Authorization failed: domain=\(failure.domain, privacy: .public), code=\(failure.code)")
+            } else if !granted {
+                Logger(subsystem: "com.tiantian.pangpang-desktop-pet", category: "notifications").warning("System notifications not authorized; local reminders remain available")
+            }
             guard granted else { return }
             Task { @MainActor [weak self] in
                 self?.wellbeing.refreshMeditationReminders()
@@ -287,9 +303,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             content.body = body
             content.sound = .default
             content.categoryIdentifier = self.pomodoro.phase == .completed ? "PANGPANG_COMPLETED" : "PANGPANG_POMODORO"
+            let category = content.categoryIdentifier
             UNUserNotificationCenter.current().add(
                 UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-            )
+            ) { error in
+                let logger = Logger(subsystem: "com.tiantian.pangpang-desktop-pet", category: "notifications")
+                if let error {
+                    let failure = error as NSError
+                    logger.error("Notification submission failed: category=\(category, privacy: .public), domain=\(failure.domain, privacy: .public), code=\(failure.code)")
+                } else {
+                    // Accepted is not proof of visible delivery (Focus/sharing may suppress it).
+                    logger.info("Notification accepted: category=\(category, privacy: .public)")
+                }
+            }
         }
     }
 
@@ -666,9 +692,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let content = BubbleView(message: bubble, onAction: { [weak self] in
             if bubble.action == .startNextFocus { self?.startFocus() }
             if bubble.action == .startMeditation { self?.startMeditation() }
+            if bubble.action == .viewFocusResult { self?.showFocusPage() }
             self?.bubbleWindow?.orderOut(nil)
         }, onDismiss: { [weak self] in self?.bubbleWindow?.orderOut(nil) })
-        let panel = bubbleWindow ?? makePanel(size: BubbleView.panelSize)
+        let panel = bubbleWindow ?? makePanel(size: BubbleView.panelSize, nonactivating: true)
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.title = "\(AppBrand.name) · 提示"
         panel.setContentSize(BubbleView.panelSize)
         install(content, in: panel)
         place(panel, above: petWindow, preferredWidth: BubbleView.panelSize.width)
@@ -676,7 +705,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         bubbleWindow = panel
         let dismissal = DispatchWorkItem { [weak panel] in panel?.orderOut(nil) }
         bubbleDismissal = dismissal
-        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: dismissal)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: dismissal)
     }
 
     @objc private func openFocusPage() { showFocusPage() }
@@ -734,10 +763,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func makePanel(size: NSSize) -> NSPanel {
+    private func makePanel(size: NSSize, nonactivating: Bool = false) -> NSPanel {
         let panel = InputCapablePanel(
             contentRect: NSRect(origin: .zero, size: size),
-            styleMask: [.borderless],
+            styleMask: nonactivating ? [.borderless, .nonactivatingPanel] : [.borderless],
             backing: .buffered,
             defer: false
         )

@@ -58,7 +58,6 @@ struct FocusFlowScreen: View {
     var editLatestNote = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsSettings = false
-    @State private var showsTask = false
     @State private var showsNote = false
     @State private var note = ""
     @State private var noteRecordID: UUID?
@@ -67,19 +66,22 @@ struct FocusFlowScreen: View {
     private var running: Bool { store.phase == .focus }
     private var completed: Bool { store.phase == .completed }
     private var ready: Bool { !running && !completed && !store.isRestSession && !store.isPaused }
-    private var taskTitle: String { store.draftTask.isEmpty ? store.draftCategory : store.draftTask }
 
     var body: some View {
         Group {
             if showsSettings {
                 FocusSettingsView(store: store, appBlocker: appBlocker) { showsSettings = false }
+            } else if ready {
+                FocusReadySurface(store: store, onSettings: { showsSettings = true },
+                    onHistory: onHistory, onTool: onTool,
+                    feedback: showsAbandonedFeedback ? store.lastAbandonedRecord.map { "本轮已结束，\(elapsed($0.seconds))已记录" } : nil)
             } else {
                 GeometryReader { geometry in
                     ZStack {
                         if running { runningBackground.overlay(Color.black.opacity(0.25)) }
                         else if store.isRestSession { runningBackground.opacity(0.22).background(.white) }
                         else { FocusTheme.background }
-                        if ready || store.isPaused { header }
+                        if store.isPaused { header }
                         if running {
                             countdown(size: min(132, geometry.size.width * 0.16), color: .white)
                                 .position(x: geometry.size.width / 2, y: geometry.size.height * 0.49)
@@ -95,11 +97,8 @@ struct FocusFlowScreen: View {
                         } else if store.isRestSession {
                             restContents
                                 .position(x: geometry.size.width / 2, y: geometry.size.height * 0.47)
-                        } else {
-                            readyContents
-                                .position(x: geometry.size.width / 2, y: geometry.size.height * 0.52)
                         }
-                        if ready || store.isRestSession {
+                        if store.isRestSession {
                             wellbeingActions
                                 .position(x: geometry.size.width / 2, y: geometry.size.height - 108)
                         }
@@ -119,7 +118,6 @@ struct FocusFlowScreen: View {
             if editLatestNote { openNote() }
         }
         .onChange(of: store.phase) { phase in
-            showsTask = false
             if phase == .focus { showsSettings = false; showsNote = false; showsAbandonedFeedback = false }
         }
         .task(id: store.completionRecordID) {
@@ -153,30 +151,6 @@ struct FocusFlowScreen: View {
             }.foregroundStyle(FocusTheme.secondary).padding(.horizontal, 32).padding(.top, 42)
             Spacer()
         }
-    }
-
-    private var readyContents: some View {
-        VStack(spacing: 0) {
-            Button { showsTask = true } label: {
-                Text(store.configuredFocusText)
-                    .font(.system(size: 112, weight: .semibold, design: .rounded)).monospacedDigit().tracking(-3)
-            }.buttonStyle(.plain).help("调整本轮时长与任务").accessibilityIdentifier("focus.duration")
-                .overlay(alignment: .trailing) { resetControl.offset(x: 56) }
-            Button { showsTask = true } label: {
-                HStack(spacing: 7) {
-                    Text(taskTitle).lineLimit(1)
-                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
-                }.font(.system(size: 18, weight: .medium)).frame(maxWidth: 360).frame(height: 32)
-            }.buttonStyle(.plain).foregroundStyle(FocusTheme.secondary)
-                .popover(isPresented: $showsTask) { taskEditor }
-            primary("开始专注", id: "focus.start") { store.startFocus() }.padding(.top, 38)
-            Group {
-                if showsAbandonedFeedback, let record = store.lastAbandonedRecord {
-                    Text("本轮已结束，\(elapsed(record.seconds))已记录").font(.system(size: 12))
-                        .foregroundStyle(FocusTheme.secondary)
-                } else { Text(" ").font(.system(size: 12)) }
-            }.frame(height: 24).padding(.top, 10)
-        }.fixedSize(horizontal: false, vertical: true)
     }
 
     private var restContents: some View {
@@ -281,20 +255,6 @@ struct FocusFlowScreen: View {
     private func elapsed(_ seconds: TimeInterval) -> String {
         seconds < 60 ? "\(Int(seconds)) 秒" : "\(Int(seconds / 60)) 分钟"
     }
-    private var taskEditor: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("这轮想做什么？").font(.system(size: 16, weight: .semibold))
-            Stepper("专注 \(store.settings.focusMinutes) 分钟", value: Binding(
-                get: { store.settings.focusMinutes },
-                set: { var settings = store.settings; settings.focusMinutes = $0; store.updateSettings(settings) }), in: 1...180)
-            Picker("类别", selection: $store.draftCategory) {
-                ForEach(["专注", "工作", "阅读", "学习", "其他"], id: \.self) { Text($0) }
-            }
-            TextField("写一个小目标（选填）", text: $store.draftTask).textFieldStyle(.roundedBorder)
-                .onChange(of: store.draftTask) { value in if value.count > 80 { store.draftTask = String(value.prefix(80)) } }
-            HStack { Spacer(); Button("完成") { showsTask = false }.keyboardShortcut(.defaultAction) }
-        }.padding(22).frame(width: 330)
-    }
     private func openNote() {
         guard let record = store.completionRecord ?? store.latestCompleted else { return }
         note = record.note; noteRecordID = record.id; showsNote = true
@@ -312,6 +272,194 @@ struct FocusFlowScreen: View {
                 }.disabled(note.count > 100).keyboardShortcut(.defaultAction)
             }
         }.padding(22).frame(width: 330)
+    }
+}
+
+/// The approved ready-page design only. Running, rest and existing detail pages
+/// continue to use their original views and unchanged model transitions.
+private struct FocusReadySurface: View {
+    @ObservedObject var store: PomodoroStore
+    let onSettings: () -> Void
+    let onHistory: () -> Void
+    let onTool: (ToolboxTool) -> Void
+    var feedback: String?
+    @State private var editing = false
+    @State private var taskDraft = ""
+    @State private var showsTiming = false
+    @FocusState private var taskFocused: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let height = geometry.size.height
+            let scale = min(width / 800, height / 600)
+            let column = min(width * 0.355, 380 * scale)
+            let center = width * 0.2775
+            ZStack {
+                if let url = Bundle.main.url(forResource: "focus-window-scene-v1", withExtension: "png"),
+                   let image = NSImage(contentsOf: url) {
+                    Image(nsImage: image).resizable().scaledToFill()
+                        .frame(width: width, height: height).clipped()
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                } else { Color(red: 0.98, green: 0.98, blue: 0.96) }
+                Text(AppBrand.wordmark).font(.system(size: 11 * scale, weight: .medium))
+                    .foregroundStyle(Color(red: 0.43, green: 0.43, blue: 0.43))
+                    .position(x: width / 2, y: 14 * scale)
+                    .allowsHitTesting(false).accessibilityHidden(true)
+                HStack(spacing: 15 * scale) {
+                    Button(action: onHistory) { readyIcon("chart", fallback: "chart.bar.xaxis", size: 23 * scale).frame(width: 36 * scale, height: 36 * scale) }
+                        .help("数据统计").accessibilityLabel("数据统计").accessibilityIdentifier("focus.statistics")
+                    Button(action: onSettings) { readyIcon("settings", fallback: "gearshape", size: 23 * scale).frame(width: 36 * scale, height: 36 * scale) }
+                        .help("设置").accessibilityLabel("设置").accessibilityIdentifier("focus.settings")
+                }.buttonStyle(FocusReadyQuietStyle()).position(x: width - 64 * scale, y: 59 * scale)
+
+                Button { commitTask(); showsTiming = true } label: {
+                    readyTimer(scale: scale).frame(width: column + 20 * scale, height: 176 * scale)
+                        .contentShape(Rectangle())
+                }.buttonStyle(.plain).position(x: center, y: height * 0.377)
+                    .help("点击调整时长与类别，或重置本轮")
+                    .accessibilityLabel("专注时长 \(store.settings.focusMinutes) 分钟，点击调整")
+                    .accessibilityIdentifier("focus.duration")
+                    .popover(isPresented: $showsTiming) { timingEditor }
+
+                Group {
+                    if editing {
+                        TextField("添加本轮任务（选填）", text: $taskDraft)
+                            .textFieldStyle(.plain).font(.system(size: 18 * scale))
+                            .multilineTextAlignment(.center).padding(.horizontal, 12 * scale)
+                            .frame(width: column, height: 42 * scale)
+                            .background(.white.opacity(0.75), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(FocusTheme.accent.opacity(0.5), lineWidth: 1))
+                            .focused($taskFocused).onSubmit(commitTask)
+                            .onExitCommand { taskFocused = false; editing = false }
+                            .accessibilityLabel("本轮任务").accessibilityIdentifier("focus.taskInput")
+                    } else {
+                        Button {
+                            taskDraft = store.draftTask; editing = true
+                            DispatchQueue.main.async { taskFocused = true }
+                        } label: {
+                            HStack(spacing: 9 * scale) {
+                                Text(store.draftTask.isEmpty ? "添加本轮任务（选填）" : store.draftTask)
+                                    .font(.system(size: (store.draftTask.isEmpty ? 15 : 19) * scale, weight: .medium))
+                                    .lineLimit(1).truncationMode(.tail)
+                                Text("编辑").font(.system(size: 10 * scale)).foregroundStyle(Color(red: 0.51, green: 0.55, blue: 0.62))
+                            }.padding(.horizontal, 12 * scale).frame(maxWidth: column, minHeight: 42 * scale)
+                                .contentShape(RoundedRectangle(cornerRadius: 9))
+                        }.buttonStyle(FocusReadyQuietStyle())
+                            .accessibilityLabel("编辑本轮任务").accessibilityIdentifier("focus.taskEdit")
+                    }
+                }.position(x: center, y: height * 0.54)
+
+                Button { commitTask(); store.startFocus() } label: {
+                    Text("开始专注").font(.system(size: 21 * scale, weight: .medium))
+                        .frame(width: column, height: 55 * scale)
+                }.buttonStyle(FocusReadyPrimaryStyle()).position(x: center, y: height * 0.64)
+                    .accessibilityIdentifier("focus.start")
+
+                HStack(spacing: 10 * scale) {
+                    readyShortcut("1 分钟冥想", icon: "leaf", fallback: "leaf", id: "focus.meditation", scale: scale, width: (column + 12 * scale) / 2) {
+                        commitTask(); onTool(.meditation)
+                    }
+                    readyShortcut("记录心情", icon: "heart", fallback: "heart", id: "focus.mood", scale: scale, width: (column + 12 * scale) / 2) {
+                        commitTask(); onTool(.mood)
+                    }
+                }.position(x: center, y: height * 0.758)
+
+                if let feedback {
+                    Text(feedback).font(.system(size: 11 * scale)).foregroundStyle(FocusTheme.secondary)
+                        .position(x: center, y: height * 0.84).accessibilityIdentifier("focus.abandonedFeedback")
+                }
+                Button { commitTask(); onHistory() } label: {
+                    HStack(spacing: 18 * scale) {
+                        HStack(spacing: 8 * scale) {
+                            ForEach(Array(store.todayRecords.suffix(5))) { record in
+                                FocusPaw(size: 36 * scale).saturation(record.completed ? 1 : 0)
+                                    .opacity(record.completed ? 1 : 0.48)
+                                    .help(record.completed ? "完成一轮" : "提前结束")
+                            }
+                        }.accessibilityHidden(true)
+                        Text("今日 \(store.focusCountToday) 轮 · \(store.todayMinutes) 分钟")
+                            .font(.system(size: 13 * scale, weight: .medium)).lineLimit(1)
+                    }.padding(.horizontal, 10 * scale).frame(height: 44 * scale)
+                        .contentShape(RoundedRectangle(cornerRadius: 10))
+                }.buttonStyle(FocusReadyQuietStyle())
+                    .accessibilityLabel("今日 \(store.focusCountToday) 轮，\(store.todayMinutes) 分钟，查看记录")
+                    .accessibilityIdentifier("focus.history")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(.leading, 32 * scale).padding(.bottom, 24 * scale).padding(.trailing, width * 0.43)
+            }.foregroundStyle(Color(red: 0.19, green: 0.24, blue: 0.34))
+                .frame(width: width, height: height).clipped()
+                .onChange(of: taskFocused) { focused in if !focused && editing { commitTask() } }
+        }.ignoresSafeArea()
+    }
+
+    private func commitTask() {
+        guard editing else { return }
+        store.draftTask = String(taskDraft.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
+        editing = false; taskFocused = false
+    }
+    private func readyTimer(scale: CGFloat) -> some View {
+        let parts = store.configuredFocusText.split(separator: ":")
+        return HStack(alignment: .center, spacing: -4 * scale) {
+            Text(String(parts.first ?? "25")).font(.custom("DINCondensed-Bold", size: 184 * scale)).tracking(-6 * scale).offset(y: 24 * scale)
+            Text(":").font(.custom("ArialRoundedMTBold", size: 107 * scale)).offset(y: -7 * scale)
+            Text(String(parts.last ?? "00")).font(.custom("DINCondensed-Bold", size: 184 * scale)).tracking(-6 * scale).offset(y: 24 * scale)
+        }.foregroundStyle(Color(red: 0.09, green: 0.11, blue: 0.14)).fixedSize()
+    }
+    private func readyIcon(_ name: String, fallback: String, size: CGFloat) -> some View {
+        Group {
+            if let url = Bundle.main.url(forResource: "focus-icon-\(name)-v1", withExtension: "png"), let image = NSImage(contentsOf: url) {
+                Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
+            } else { Image(systemName: fallback).resizable().scaledToFit() }
+        }.frame(width: size, height: size).accessibilityHidden(true)
+    }
+    private func readyShortcut(_ title: String, icon: String, fallback: String, id: String, scale: CGFloat, width: CGFloat, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10 * scale) {
+                readyIcon(icon, fallback: fallback, size: 24 * scale)
+                Text(title).font(.system(size: 14 * scale, weight: .medium)).lineLimit(1)
+            }.frame(width: width, height: 48 * scale).contentShape(RoundedRectangle(cornerRadius: 10))
+        }.buttonStyle(FocusReadyQuietStyle()).accessibilityIdentifier(id)
+    }
+    private var timingEditor: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("计时设置").font(.system(size: 16, weight: .semibold))
+            Stepper("专注 \(store.settings.focusMinutes) 分钟", value: Binding(get: { store.settings.focusMinutes },
+                set: { var value = store.settings; value.focusMinutes = $0; store.updateSettings(value) }), in: 1...180)
+            Picker("类别", selection: $store.draftCategory) {
+                ForEach(["专注", "工作", "阅读", "学习", "其他"], id: \.self) { Text($0) }
+            }
+            HStack {
+                Button("重置本轮") { store.resetToReady(); showsTiming = false }.accessibilityIdentifier("focus.reset")
+                Spacer()
+                Button("完成") { showsTiming = false }.keyboardShortcut(.defaultAction)
+            }
+        }.padding(22).frame(width: 310)
+    }
+}
+
+private struct FocusReadyQuietStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isFocused) private var focused
+    @State private var hovered = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background((hovered || focused) ? Color.white.opacity(configuration.isPressed ? 0.8 : 0.62) : .clear,
+                in: RoundedRectangle(cornerRadius: 10))
+            .shadow(color: .black.opacity((hovered || focused) ? 0.075 : 0), radius: configuration.isPressed ? 2 : 9, y: configuration.isPressed ? 1 : 3)
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(focused ? FocusTheme.accent : .clear, lineWidth: 2))
+            .onHover { hovered = $0 }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: hovered)
+    }
+}
+
+private struct FocusReadyPrimaryStyle: ButtonStyle {
+    @State private var hovered = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.foregroundStyle(.white)
+            .background(Color(red: 0.24, green: configuration.isPressed ? 0.41 : 0.48, blue: configuration.isPressed ? 0.88 : 0.99), in: Capsule())
+            .shadow(color: FocusTheme.accent.opacity(hovered ? 0.16 : 0), radius: configuration.isPressed ? 2 : 7, y: configuration.isPressed ? 1 : 3)
+            .onHover { hovered = $0 }
     }
 }
 

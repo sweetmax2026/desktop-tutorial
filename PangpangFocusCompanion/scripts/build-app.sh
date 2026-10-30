@@ -26,6 +26,9 @@ cp "${project_dir}/Resources/focus-paw-blue.png" "${contents_dir}/Resources/focu
 cp "${project_dir}/Resources/focus-paw-simple-v1.png" "${contents_dir}/Resources/"
 cp "${project_dir}/Resources/pangpang-rest-peek-v1.png" "${contents_dir}/Resources/"
 cp "${project_dir}/Resources/focus-quiet-backdrop-v1.png" "${contents_dir}/Resources/"
+cp "${project_dir}/Resources/focus-window-scene-v1.png" "${contents_dir}/Resources/"
+cp "${project_dir}"/Resources/focus-icon-*-v1.png "${contents_dir}/Resources/"
+cp "${project_dir}/Resources/ThirdParty-Phosphor-LICENSE.txt" "${contents_dir}/Resources/"
 cp "${project_dir}"/Resources/mood-*.png "${contents_dir}/Resources/"
 "${developer_dir}/usr/bin/actool" "${project_dir}/Resources/Pangpang.icon" --compile "${contents_dir}/Resources" --platform macosx --minimum-deployment-target 13.0 --target-device mac --app-icon Pangpang --output-partial-info-plist "${staging_dir}/icon-info.plist" >/dev/null
 test -s "${contents_dir}/Resources/Pangpang.icns"
