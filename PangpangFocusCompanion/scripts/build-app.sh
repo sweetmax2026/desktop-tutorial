@@ -27,6 +27,7 @@ cp "${project_dir}/Resources/focus-paw-simple-v1.png" "${contents_dir}/Resources
 cp "${project_dir}/Resources/pangpang-rest-peek-v1.png" "${contents_dir}/Resources/"
 cp "${project_dir}/Resources/focus-quiet-backdrop-v1.png" "${contents_dir}/Resources/"
 cp "${project_dir}/Resources/focus-window-scene-v1.png" "${contents_dir}/Resources/"
+cp "${project_dir}/Resources/statistics-window-sidebar-v1.png" "${contents_dir}/Resources/"
 cp "${project_dir}"/Resources/focus-icon-*-v1.png "${contents_dir}/Resources/"
 cp "${project_dir}/Resources/ThirdParty-Phosphor-LICENSE.txt" "${contents_dir}/Resources/"
 cp "${project_dir}"/Resources/mood-*.png "${contents_dir}/Resources/"

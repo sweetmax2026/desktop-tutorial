@@ -74,6 +74,13 @@ struct FocusSettings: Codable, Equatable {
     }
 }
 
+struct FocusTaskPreset: Codable, Identifiable {
+    let id: UUID
+    var name: String
+    var category: String
+    var focusMinutes: Int
+}
+
 @MainActor
 final class PomodoroStore: ObservableObject {
     @Published private(set) var phase: PomodoroPhase = .idle
@@ -83,6 +90,7 @@ final class PomodoroStore: ObservableObject {
     @Published private(set) var pausedRemaining: TimeInterval?
     @Published private var currentTime = Date()
     @Published private(set) var records: [FocusRecord] = []
+    @Published private(set) var taskPresets: [FocusTaskPreset] = []
     @Published private(set) var activeSessionID: UUID?
     @Published private(set) var completionRecordID: UUID?
     @Published private(set) var lastAbandonedRecordID: UUID?
@@ -126,6 +134,8 @@ final class PomodoroStore: ObservableObject {
     private var shortBreakDuration: TimeInterval { TimeInterval(settings.shortBreakMinutes * 60) }
     private var longBreakDuration: TimeInterval { TimeInterval(settings.longBreakMinutes * 60) }
     private let settingsKey = "pangpang.focus.settings.v1"
+    private let taskPresetsKey = "pangpang.focus.task-presets.v1"
+    private var taskPresetsReady = false
 
     init(defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init, schedulesTimer: Bool = true) {
         self.defaults = defaults
@@ -137,6 +147,7 @@ final class PomodoroStore: ObservableObject {
             settings = saved.validated
         }
         restore()
+        restoreTaskPresets()
         if schedulesTimer { startTimer() }
     }
     deinit { timer?.invalidate() }
@@ -154,6 +165,62 @@ final class PomodoroStore: ObservableObject {
     var lastAbandonedRecord: FocusRecord? { records.first { $0.id == lastAbandonedRecordID } }
     var primaryActionTitle: String { phase == .readyForFocus ? "开始下一轮专注" : "开始 \(settings.focusMinutes) 分钟专注" }
     var configuredFocusText: String { String(format: "%02d:00", settings.focusMinutes) }
+    // Keep the original session's digit size even across 100:00 → 99:59 or
+    // edits to the next session's settings.
+    var focusTimerUsesCompactDigits: Bool { (phase == .focus ? activeDuration : focusDuration) >= 6000 }
+    /// A saved task is a reusable preparation, never a completed focus record.
+    func saveTaskConfiguration(name: String, category: String, focusMinutes: Int) {
+        guard phase == .idle || phase == .readyForFocus else { return }
+        draftTask = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
+        draftCategory = category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "专注" : category
+        var value = settings
+        value.focusMinutes = focusMinutes
+        updateSettings(value)
+        rememberTask(name: draftTask, category: draftCategory, minutes: settings.focusMinutes)
+    }
+
+    func removeTaskPreset(id: UUID) {
+        taskPresets.removeAll { $0.id == id }
+        persistTaskPresets()
+    }
+
+    private func rememberTask(name: String, category: String, minutes: Int) {
+        guard taskPresetsReady else { return }
+        let name = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
+        guard !name.isEmpty else { return }
+        let existingID = taskPresets.first { $0.name == name }?.id ?? UUID()
+        taskPresets.removeAll { $0.name == name }
+        taskPresets.insert(FocusTaskPreset(id: existingID, name: name, category: category,
+                                          focusMinutes: min(180, max(1, minutes))), at: 0)
+        persistTaskPresets()
+    }
+
+    private func persistTaskPresets() {
+        guard let data = try? JSONEncoder().encode(taskPresets) else { return }
+        defaults.set(data, forKey: taskPresetsKey)
+    }
+
+    private func restoreTaskPresets() {
+        defer { taskPresetsReady = true }
+        if let data = defaults.data(forKey: taskPresetsKey) {
+            // An explicitly empty list must stay empty after every restart.
+            taskPresets = (try? JSONDecoder().decode([FocusTaskPreset].self, from: data)) ?? []
+            return
+        }
+        // Seed existing task names once. An abandoned round does not establish
+        // its configured duration, so only exact completed rounds supply it.
+        var names = Set<String>()
+        for record in records.sorted(by: { $0.endedAt > $1.endedAt }) {
+            let name = String(record.task.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
+            guard !name.isEmpty, names.insert(name).inserted else { continue }
+            let minutes = record.completed && !record.estimated
+                ? Int((record.seconds / 60).rounded()) : settings.focusMinutes
+            taskPresets.append(FocusTaskPreset(id: UUID(), name: name, category: record.category,
+                                               focusMinutes: min(180, max(1, minutes))))
+        }
+        persistTaskPresets()
+    }
+
     func updateSettings(_ value: FocusSettings) {
         settings = value.validated
         if let data = try? JSONEncoder().encode(settings) { defaults.set(data, forKey: settingsKey) }
@@ -223,6 +290,7 @@ final class PomodoroStore: ObservableObject {
         activeSessionID = UUID()
         activeTask = String(draftTask.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
         activeCategory = draftCategory
+        rememberTask(name: activeTask, category: activeCategory, minutes: settings.focusMinutes)
         activeDuration = focusDuration
         phase = .focus; pausedRemaining = nil; endDate = now().addingTimeInterval(focusDuration)
     }

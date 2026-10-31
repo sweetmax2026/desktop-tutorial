@@ -9,6 +9,8 @@ mkdir -p "${project_dir}/build"
 common=(-parse-as-library -sdk "${sdk}" -target "$(uname -m)-apple-macos13.0" -module-cache-path "${project_dir}/build/ModuleCache")
 "${compiler}" "${common[@]}" "${project_dir}/DailyCount.swift" "${project_dir}/PomodoroStore.swift" "${project_dir}/tests/FocusStoreChecks.swift" -o "${project_dir}/build/FocusStoreChecks"
 "${project_dir}/build/FocusStoreChecks"
+"${compiler}" "${common[@]}" "${project_dir}/DailyCount.swift" "${project_dir}/PomodoroStore.swift" "${project_dir}/tests/TaskPresetChecks.swift" -o "${project_dir}/build/TaskPresetChecks"
+"${project_dir}/build/TaskPresetChecks"
 "${compiler}" "${common[@]}" -framework AppKit "${project_dir}/AppBlockerStore.swift" "${project_dir}/tests/AppGuardChecks.swift" -o "${project_dir}/build/AppGuardChecks"
 "${project_dir}/build/AppGuardChecks"
 preview="${project_dir}/build/PangpangFlowPreview.app/Contents"

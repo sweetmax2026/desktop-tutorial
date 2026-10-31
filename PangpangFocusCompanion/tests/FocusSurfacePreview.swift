@@ -39,6 +39,7 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
     private var guardProbeDefaults: UserDefaults?
     private var guardProbeSuite: String?
     private var verifiedHides = 0
+    private var slowTransition = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         defaults = UserDefaults(suiteName: suite)!
@@ -98,6 +99,11 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
             command.target = self
             tests.submenu?.addItem(command)
         }
+        for (title, action, key) in [("慢速进入专注（仅检查动画）", #selector(slowFocusEntry), "s"),
+                                      ("正常进入专注", #selector(normalFocusEntry), "n")] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.target = self; tests.submenu?.addItem(item)
+        }
         mainMenu.addItem(tests)
         for (title, selector, key) in [("实测 SeaTalk 管控（60 秒后自动停止）", #selector(startGuardProbe), "9"),
                                         ("停止管控实测", #selector(stopGuardProbe), "0")] {
@@ -132,13 +138,14 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showHome() {
-        window.contentView = PreviewHostingView(rootView: BlueToolboxHome(store: store, wellbeing: wellbeing, appBlocker: blocker,
+        window.contentView = PreviewHostingView(rootView: FocusFlowScreen(store: store, appBlocker: blocker,
             onTool: { [unowned self] tool in
                 if tool == .pomodoro { showFocus() }
                 else if tool == .mood { showMood() }
                 else if tool == .meditation { showMeditation() }
                 else if tool == .appBlocker { showGuard() }
-            }, onHistory: { [unowned self] in showStats(returnToFocus: false) }).environment(\.colorScheme, .light))
+            }, onHistory: { [unowned self] in showStats(returnToFocus: false) },
+            entryDuration: slowTransition ? 6 : 0.35).environment(\.colorScheme, .light))
     }
     private func showFocus() {
         window.contentView = PreviewHostingView(rootView: FocusExperienceView(store: store, appBlocker: blocker,
@@ -184,6 +191,8 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func advance() { clock = clock.addingTimeInterval(10); store.refreshForCurrentTime() }
+    @objc func slowFocusEntry() { slowTransition = true; store.endCurrentSession(); showHome() }
+    @objc func normalFocusEntry() { slowTransition = false; store.endCurrentSession(); showHome() }
     @objc func finish() { clock = clock.addingTimeInterval(1500); store.refreshForCurrentTime() }
     @objc func finishBreak() { clock = clock.addingTimeInterval(300); store.refreshForCurrentTime() }
     @objc func ready() { store.resetToReady(); showHome() }

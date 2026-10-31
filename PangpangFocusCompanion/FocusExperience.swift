@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreText
 
 struct FocusCat: View {
     var size: CGFloat = 48
@@ -56,6 +57,7 @@ struct FocusFlowScreen: View {
     let onTool: (ToolboxTool) -> Void
     let onHistory: () -> Void
     var editLatestNote = false
+    let entryDuration: TimeInterval
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsSettings = false
     @State private var showsNote = false
@@ -63,32 +65,34 @@ struct FocusFlowScreen: View {
     @State private var noteRecordID: UUID?
     @State private var rewardLanded = false
     @State private var showsAbandonedFeedback = false
+    @State private var focusProgress: Double
     private var running: Bool { store.phase == .focus }
     private var completed: Bool { store.phase == .completed }
     private var ready: Bool { !running && !completed && !store.isRestSession && !store.isPaused }
+
+    @MainActor
+    init(store: PomodoroStore, appBlocker: AppBlockerStore,
+         onTool: @escaping (ToolboxTool) -> Void, onHistory: @escaping () -> Void,
+         editLatestNote: Bool = false, entryDuration: TimeInterval = 0.35) {
+        self.store = store; self.appBlocker = appBlocker
+        self.onTool = onTool; self.onHistory = onHistory
+        self.editLatestNote = editLatestNote; self.entryDuration = entryDuration
+        _focusProgress = State(initialValue: store.phase == .focus ? 1 : 0)
+    }
 
     var body: some View {
         Group {
             if showsSettings {
                 FocusSettingsView(store: store, appBlocker: appBlocker) { showsSettings = false }
-            } else if ready {
-                FocusReadySurface(store: store, onSettings: { showsSettings = true },
-                    onHistory: onHistory, onTool: onTool,
-                    feedback: showsAbandonedFeedback ? store.lastAbandonedRecord.map { "本轮已结束，\(elapsed($0.seconds))已记录" } : nil)
+            } else if ready || running {
+                preparationAndFocus
             } else {
                 GeometryReader { geometry in
                     ZStack {
-                        if running { runningBackground.overlay(Color.black.opacity(0.25)) }
-                        else if store.isRestSession { runningBackground.opacity(0.22).background(.white) }
+                        if store.isRestSession { runningBackground.opacity(0.22).background(.white) }
                         else { FocusTheme.background }
                         if store.isPaused { header }
-                        if running {
-                            countdown(size: min(132, geometry.size.width * 0.16), color: .white)
-                                .position(x: geometry.size.width / 2, y: geometry.size.height * 0.49)
-                            HoldToAbandon(action: store.endCurrentSession)
-                                .frame(width: 210, height: 48)
-                                .position(x: geometry.size.width / 2, y: geometry.size.height - 52)
-                        } else if completed {
+                        if completed {
                             completionContents
                                 .position(x: geometry.size.width / 2, y: geometry.size.height * 0.46)
                         } else if store.isPaused {
@@ -118,7 +122,13 @@ struct FocusFlowScreen: View {
             if editLatestNote { openNote() }
         }
         .onChange(of: store.phase) { phase in
-            if phase == .focus { showsSettings = false; showsNote = false; showsAbandonedFeedback = false }
+            if phase == .focus {
+                showsSettings = false; showsNote = false; showsAbandonedFeedback = false
+                withAnimation(reduceMotion ? nil : .easeOut(duration: entryDuration)) { focusProgress = 1 }
+            } else {
+                var transaction = Transaction(); transaction.disablesAnimations = true
+                withTransaction(transaction) { focusProgress = 0 }
+            }
         }
         .task(id: store.completionRecordID) {
             guard completed else { return }
@@ -135,6 +145,44 @@ struct FocusFlowScreen: View {
             try? await Task.sleep(nanoseconds: 6_000_000_000)
             if !Task.isCancelled { showsAbandonedFeedback = false }
         }
+    }
+
+    /// One persistent timer moves between ready and focus; its identity, glyphs
+    /// and live countdown survive the transition. Model time starts immediately.
+    private var preparationAndFocus: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let height = geometry.size.height
+            let scale = min(width / 800, height / 600)
+            let progress = min(1, max(0, focusProgress))
+            ZStack {
+                FocusReadySurface(store: store, onSettings: { showsSettings = true },
+                    onHistory: onHistory, onTool: onTool,
+                    feedback: showsAbandonedFeedback ? store.lastAbandonedRecord.map { "本轮已结束，\(elapsed($0.seconds))已记录" } : nil,
+                    controlsOpacity: 1 - progress, controlsFadeDuration: reduceMotion ? 0 : entryDuration * 0.45)
+                    .allowsHitTesting(ready).accessibilityHidden(!ready)
+                runningBackground.overlay(Color.black.opacity(0.25))
+                    .frame(width: width, height: height).clipped()
+                    .opacity(progress).allowsHitTesting(false)
+                Color.clear.modifier(AnimatedTimerInk(
+                    text: running ? (store.remainingText() ?? store.configuredFocusText) : store.configuredFocusText,
+                    scale: scale, compactDigits: store.focusTimerUsesCompactDigits, lightInk: progress))
+                    .frame(width: 400 * scale, height: 220 * scale)
+                    .position(x: width * (0.2775 + 0.2225 * progress), y: height * (0.377 + 0.113 * progress))
+                    .allowsHitTesting(false)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(running ? "剩余专注时间" : "专注时长")
+                    .accessibilityValue(running ? (store.remainingText() ?? store.configuredFocusText) : store.configuredFocusText)
+                    .accessibilityIdentifier(running ? "focus.countdown" : "focus.duration")
+                if running {
+                    HoldToAbandon(action: store.endCurrentSession)
+                        .frame(width: 210, height: 48)
+                        .position(x: width / 2, y: height - 52)
+                        .opacity(progress)
+                        .animation(reduceMotion ? nil : .easeOut(duration: entryDuration * 0.35).delay(entryDuration * 0.65), value: focusProgress)
+                }
+            }.frame(width: width, height: height).clipped()
+        }.ignoresSafeArea()
     }
 
     private var header: some View {
@@ -275,17 +323,21 @@ struct FocusFlowScreen: View {
     }
 }
 
-/// The approved ready-page design only. Running, rest and existing detail pages
-/// continue to use their original views and unchanged model transitions.
+/// The ready-page illustration and controls; the enclosing flow owns the timer
+/// so it can remain continuous when the controls fade away.
 private struct FocusReadySurface: View {
     @ObservedObject var store: PomodoroStore
     let onSettings: () -> Void
     let onHistory: () -> Void
     let onTool: (ToolboxTool) -> Void
     var feedback: String?
-    @State private var editing = false
+    var controlsOpacity: Double = 1
+    var controlsFadeDuration: TimeInterval = 0.16
     @State private var taskDraft = ""
-    @State private var showsTiming = false
+    @State private var minutesDraft = 25
+    @State private var categoryDraft = "专注"
+    @State private var showsTaskEditor = false
+    @State private var showsTaskHistory = false
     @FocusState private var taskFocused: Bool
 
     var body: some View {
@@ -302,6 +354,7 @@ private struct FocusReadySurface: View {
                         .frame(width: width, height: height).clipped()
                         .allowsHitTesting(false).accessibilityHidden(true)
                 } else { Color(red: 0.98, green: 0.98, blue: 0.96) }
+                Group {
                 Text(AppBrand.wordmark).font(.system(size: 11 * scale, weight: .medium))
                     .foregroundStyle(Color(red: 0.43, green: 0.43, blue: 0.43))
                     .position(x: width / 2, y: 14 * scale)
@@ -313,44 +366,27 @@ private struct FocusReadySurface: View {
                         .help("设置").accessibilityLabel("设置").accessibilityIdentifier("focus.settings")
                 }.buttonStyle(FocusReadyQuietStyle()).position(x: width - 64 * scale, y: 59 * scale)
 
-                Button { commitTask(); showsTiming = true } label: {
-                    readyTimer(scale: scale).frame(width: column + 20 * scale, height: 176 * scale)
-                        .contentShape(Rectangle())
-                }.buttonStyle(.plain).position(x: center, y: height * 0.377)
-                    .help("点击调整时长与类别，或重置本轮")
-                    .accessibilityLabel("专注时长 \(store.settings.focusMinutes) 分钟，点击调整")
-                    .accessibilityIdentifier("focus.duration")
-                    .popover(isPresented: $showsTiming) { timingEditor }
+                Button {
+                    taskDraft = store.draftTask
+                    minutesDraft = store.settings.focusMinutes
+                    categoryDraft = store.draftCategory
+                    showsTaskHistory = false
+                    showsTaskEditor = true
+                } label: {
+                    HStack(spacing: 9 * scale) {
+                        Text(store.draftTask.isEmpty ? "添加本轮任务（选填）" : store.draftTask)
+                            .font(.system(size: (store.draftTask.isEmpty ? 15 : 19) * scale, weight: .medium))
+                            .lineLimit(1).truncationMode(.tail)
+                        Text("编辑").font(.system(size: 10 * scale)).foregroundStyle(Color(red: 0.51, green: 0.55, blue: 0.62))
+                    }.padding(.horizontal, 12 * scale).frame(maxWidth: column, minHeight: 42 * scale)
+                        .contentShape(RoundedRectangle(cornerRadius: 9))
+                }.buttonStyle(FocusReadyQuietStyle())
+                    .accessibilityLabel("编辑本轮任务、时长与类别").accessibilityIdentifier("focus.taskEdit")
+                    .accessibilityValue(store.draftTask.isEmpty ? "未添加任务" : store.draftTask)
+                    .sheet(isPresented: $showsTaskEditor) { taskEditor }
+                    .position(x: center, y: height * 0.54)
 
-                Group {
-                    if editing {
-                        TextField("添加本轮任务（选填）", text: $taskDraft)
-                            .textFieldStyle(.plain).font(.system(size: 18 * scale))
-                            .multilineTextAlignment(.center).padding(.horizontal, 12 * scale)
-                            .frame(width: column, height: 42 * scale)
-                            .background(.white.opacity(0.75), in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(FocusTheme.accent.opacity(0.5), lineWidth: 1))
-                            .focused($taskFocused).onSubmit(commitTask)
-                            .onExitCommand { taskFocused = false; editing = false }
-                            .accessibilityLabel("本轮任务").accessibilityIdentifier("focus.taskInput")
-                    } else {
-                        Button {
-                            taskDraft = store.draftTask; editing = true
-                            DispatchQueue.main.async { taskFocused = true }
-                        } label: {
-                            HStack(spacing: 9 * scale) {
-                                Text(store.draftTask.isEmpty ? "添加本轮任务（选填）" : store.draftTask)
-                                    .font(.system(size: (store.draftTask.isEmpty ? 15 : 19) * scale, weight: .medium))
-                                    .lineLimit(1).truncationMode(.tail)
-                                Text("编辑").font(.system(size: 10 * scale)).foregroundStyle(Color(red: 0.51, green: 0.55, blue: 0.62))
-                            }.padding(.horizontal, 12 * scale).frame(maxWidth: column, minHeight: 42 * scale)
-                                .contentShape(RoundedRectangle(cornerRadius: 9))
-                        }.buttonStyle(FocusReadyQuietStyle())
-                            .accessibilityLabel("编辑本轮任务").accessibilityIdentifier("focus.taskEdit")
-                    }
-                }.position(x: center, y: height * 0.54)
-
-                Button { commitTask(); store.startFocus() } label: {
+                Button { store.startFocus() } label: {
                     Text("开始专注").font(.system(size: 21 * scale, weight: .medium))
                         .frame(width: column, height: 55 * scale)
                 }.buttonStyle(FocusReadyPrimaryStyle()).position(x: center, y: height * 0.64)
@@ -358,10 +394,10 @@ private struct FocusReadySurface: View {
 
                 HStack(spacing: 10 * scale) {
                     readyShortcut("1 分钟冥想", icon: "leaf", fallback: "leaf", id: "focus.meditation", scale: scale, width: (column + 12 * scale) / 2) {
-                        commitTask(); onTool(.meditation)
+                        onTool(.meditation)
                     }
                     readyShortcut("记录心情", icon: "heart", fallback: "heart", id: "focus.mood", scale: scale, width: (column + 12 * scale) / 2) {
-                        commitTask(); onTool(.mood)
+                        onTool(.mood)
                     }
                 }.position(x: center, y: height * 0.758)
 
@@ -369,7 +405,7 @@ private struct FocusReadySurface: View {
                     Text(feedback).font(.system(size: 11 * scale)).foregroundStyle(FocusTheme.secondary)
                         .position(x: center, y: height * 0.84).accessibilityIdentifier("focus.abandonedFeedback")
                 }
-                Button { commitTask(); onHistory() } label: {
+                Button { onHistory() } label: {
                     HStack(spacing: 18 * scale) {
                         HStack(spacing: 8 * scale) {
                             ForEach(Array(store.todayRecords.suffix(5))) { record in
@@ -387,24 +423,18 @@ private struct FocusReadySurface: View {
                     .accessibilityIdentifier("focus.history")
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .padding(.leading, 32 * scale).padding(.bottom, 24 * scale).padding(.trailing, width * 0.43)
+                }.opacity(controlsOpacity)
+                    .animation(controlsFadeDuration > 0 ? .easeOut(duration: controlsFadeDuration) : nil, value: controlsOpacity)
             }.foregroundStyle(Color(red: 0.19, green: 0.24, blue: 0.34))
                 .frame(width: width, height: height).clipped()
-                .onChange(of: taskFocused) { focused in if !focused && editing { commitTask() } }
         }.ignoresSafeArea()
+            .onChange(of: store.phase) { if $0 == .focus { showsTaskEditor = false } }
     }
 
-    private func commitTask() {
-        guard editing else { return }
-        store.draftTask = String(taskDraft.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
-        editing = false; taskFocused = false
-    }
-    private func readyTimer(scale: CGFloat) -> some View {
-        let parts = store.configuredFocusText.split(separator: ":")
-        return HStack(alignment: .center, spacing: -4 * scale) {
-            Text(String(parts.first ?? "25")).font(.custom("DINCondensed-Bold", size: 184 * scale)).tracking(-6 * scale).offset(y: 24 * scale)
-            Text(":").font(.custom("ArialRoundedMTBold", size: 107 * scale)).offset(y: -7 * scale)
-            Text(String(parts.last ?? "00")).font(.custom("DINCondensed-Bold", size: 184 * scale)).tracking(-6 * scale).offset(y: 24 * scale)
-        }.foregroundStyle(Color(red: 0.09, green: 0.11, blue: 0.14)).fixedSize()
+    private func saveTask() {
+        store.saveTaskConfiguration(name: taskDraft, category: categoryDraft, focusMinutes: minutesDraft)
+        showsTaskEditor = false
+        taskFocused = false
     }
     private func readyIcon(_ name: String, fallback: String, size: CGFloat) -> some View {
         Group {
@@ -421,20 +451,146 @@ private struct FocusReadySurface: View {
             }.frame(width: width, height: 48 * scale).contentShape(RoundedRectangle(cornerRadius: 10))
         }.buttonStyle(FocusReadyQuietStyle()).accessibilityIdentifier(id)
     }
-    private var timingEditor: some View {
+    private var taskEditor: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("计时设置").font(.system(size: 16, weight: .semibold))
-            Stepper("专注 \(store.settings.focusMinutes) 分钟", value: Binding(get: { store.settings.focusMinutes },
-                set: { var value = store.settings; value.focusMinutes = $0; store.updateSettings(value) }), in: 1...180)
-            Picker("类别", selection: $store.draftCategory) {
-                ForEach(["专注", "工作", "阅读", "学习", "其他"], id: \.self) { Text($0) }
+            Text("本轮任务").font(.system(size: 16, weight: .semibold))
+            HStack(spacing: 6) {
+                TextField("任务名称（选填）", text: $taskDraft).textFieldStyle(.roundedBorder)
+                    .focused($taskFocused).onSubmit(saveTask)
+                    .accessibilityLabel("任务名称").accessibilityIdentifier("focus.taskInput")
+                Button { showsTaskHistory.toggle() } label: {
+                    Image(systemName: showsTaskHistory ? "chevron.up" : "chevron.down").frame(width: 28, height: 24)
+                }.accessibilityLabel("选择历史任务").accessibilityIdentifier("focus.taskHistory")
+            }
+            if showsTaskHistory {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("历史任务").font(.system(size: 11)).foregroundStyle(FocusTheme.secondary)
+                    if store.taskPresets.isEmpty {
+                        Text("还没有历史任务，保存后会出现在这里。")
+                            .font(.system(size: 12)).foregroundStyle(FocusTheme.secondary).padding(.vertical, 10)
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 2) {
+                                ForEach(store.taskPresets) { preset in
+                                    HStack(spacing: 6) {
+                                        Button {
+                                            taskDraft = preset.name; categoryDraft = preset.category
+                                            minutesDraft = preset.focusMinutes; showsTaskHistory = false
+                                        } label: {
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text(preset.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                                                Text("\(preset.category) · \(preset.focusMinutes) 分钟")
+                                                    .font(.system(size: 11)).foregroundStyle(FocusTheme.secondary)
+                                            }.frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
+                                        }.buttonStyle(.plain).accessibilityLabel("选择 \(preset.name)，\(preset.category)，\(preset.focusMinutes) 分钟")
+                                        Button { store.removeTaskPreset(id: preset.id) } label: {
+                                            Image(systemName: "trash").frame(width: 28, height: 30)
+                                        }.buttonStyle(.borderless).help("从历史任务中移除，已完成记录保留")
+                                            .accessibilityLabel("删除历史任务 \(preset.name)")
+                                    }
+                                }
+                            }
+                        }.frame(height: min(160, CGFloat(store.taskPresets.count) * 54))
+                    }
+                    Button("添加新任务") { taskDraft = ""; showsTaskHistory = false; taskFocused = true }
+                        .buttonStyle(.link).accessibilityIdentifier("focus.newTask")
+                }.padding(10).background(FocusTheme.accent.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
+            }
+            Stepper("专注 \(minutesDraft) 分钟", value: $minutesDraft, in: 1...180)
+                .accessibilityIdentifier("focus.taskMinutes")
+            Picker("类别", selection: $categoryDraft) {
+                ForEach(taskCategories, id: \.self) { Text($0) }
             }
             HStack {
-                Button("重置本轮") { store.resetToReady(); showsTiming = false }.accessibilityIdentifier("focus.reset")
+                Button("取消") { showsTaskEditor = false }.keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("完成") { showsTiming = false }.keyboardShortcut(.defaultAction)
+                Button("保存并使用", action: saveTask).keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("focus.saveTask")
             }
-        }.padding(22).frame(width: 310)
+        }.padding(22).frame(width: 340).environment(\.colorScheme, .light)
+            .onAppear {
+                NSApp.activate(ignoringOtherApps: true)
+                DispatchQueue.main.async { taskFocused = true }
+            }
+            .onDisappear { taskFocused = false }
+    }
+    private var taskCategories: [String] {
+        let categories = ["专注", "工作", "阅读", "学习", "其他"]
+        return categories.contains(categoryDraft) ? categories : categories + [categoryDraft]
+    }
+}
+
+/// DIN's glyph outlines extend above its advertised ascender. SwiftUI Text
+/// clips that overshoot; center the real outlines in a roomy native surface.
+// Interpolate in SwiftUI before updating AppKit; NSViewRepresentable's own
+// property updates otherwise jump to their final value during layout motion.
+private struct AnimatedTimerInk: AnimatableModifier {
+    let text: String
+    let scale: CGFloat
+    let compactDigits: Bool
+    var lightInk: Double
+    var animatableData: Double {
+        get { lightInk }
+        set { lightInk = newValue }
+    }
+    func body(content: Content) -> some View {
+        ReadyTimerLabel(text: text, scale: scale, compactDigits: compactDigits, lightInk: lightInk)
+    }
+}
+
+private struct ReadyTimerLabel: NSViewRepresentable {
+    let text: String
+    let scale: CGFloat
+    let compactDigits: Bool
+    let lightInk: Double
+    func makeNSView(context: Context) -> ReadyTimerDisplay { ReadyTimerDisplay() }
+    func updateNSView(_ view: ReadyTimerDisplay, context: Context) {
+        view.text = text; view.scale = scale; view.compactDigits = compactDigits
+        view.lightInk = lightInk; view.needsDisplay = true
+    }
+}
+
+private final class ReadyTimerDisplay: NSView {
+    var text = "25:00"
+    var scale: CGFloat = 1
+    var compactDigits = false
+    var lightInk: Double = 0
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); needsDisplay = true }
+    override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        let parts = text.split(separator: ":")
+        let digitSize: CGFloat = compactDigits ? 144 : 184
+        let digitFont = NSFont(name: "DINCondensed-Bold", size: digitSize * scale) ?? .systemFont(ofSize: digitSize * scale)
+        let colonFont = NSFont(name: "ArialRoundedMTBold", size: 107 * scale) ?? .systemFont(ofSize: 107 * scale)
+        let ink = CGFloat(min(1, max(0, lightInk)))
+        let segments = [(String(parts.first ?? "25"), digitFont), (":", colonFont), (String(parts.last ?? "00"), digitFont)]
+        func line(_ value: String, font: NSFont) -> CTLine {
+            CTLineCreateWithAttributedString(NSAttributedString(string: value, attributes: [
+                .font: font, .kern: -6 * scale,
+                .foregroundColor: NSColor(red: 0.09 + 0.91 * ink, green: 0.11 + 0.89 * ink,
+                                          blue: 0.14 + 0.86 * ink, alpha: 1)
+            ]))
+        }
+        let lines = segments.map { line($0.0, font: $0.1) }
+        // Digit advances are tabular but outline widths (especially 1) differ.
+        // Center fixed zero-reference cells, not each live string's outline.
+        let boxes = segments.map { value, font in
+            CTLineGetBoundsWithOptions(line(value == ":" ? ":" : String(repeating: "0", count: value.count), font: font), .useGlyphPathBounds)
+        }
+        let widths = lines.map { CGFloat(CTLineGetTypographicBounds($0, nil, nil, nil)) }
+        let gap = 6 * scale
+        var x = (bounds.width - widths.reduce(0, +) - gap * 2) / 2
+        context.saveGState()
+        context.textMatrix = .identity
+        for index in lines.indices {
+            let box = boxes[index]
+            context.textPosition = CGPoint(x: x + (widths[index] - box.width) / 2 - box.minX,
+                                           y: bounds.midY - box.midY)
+            CTLineDraw(lines[index], context)
+            x += widths[index] + gap
+        }
+        context.restoreGState()
     }
 }
 

@@ -162,6 +162,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // Reopening a visible window must preserve its SwiftUI state, including
+        // task drafts and native popovers. Rebuilding it discards the editor.
+        if flag, [toolboxWindow, focusWindow].contains(where: { $0?.isVisible == true }) {
+            sender.activate(ignoringOtherApps: true)
+            return true
+        }
         showLastSurface()
         return true
     }
