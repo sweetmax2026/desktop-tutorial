@@ -135,6 +135,9 @@ final class PomodoroStore: ObservableObject {
     private var longBreakDuration: TimeInterval { TimeInterval(settings.longBreakMinutes * 60) }
     private let settingsKey = "pangpang.focus.settings.v1"
     private let taskPresetsKey = "pangpang.focus.task-presets.v1"
+    private let unifiedTasksKey = "pangpang.focus.unified-tasks.v1"
+    private let selectedTaskKey = "pangpang.focus.selected-task.v1"
+    private let cycleOptionsKey = "pangpang.focus.automatic-cycle-options.v1"
     private var taskPresetsReady = false
 
     init(defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init, schedulesTimer: Bool = true) {
@@ -148,6 +151,7 @@ final class PomodoroStore: ObservableObject {
         }
         restore()
         restoreTaskPresets()
+        restoreUnifiedTaskSelection()
         if schedulesTimer { startTimer() }
     }
     deinit { timer?.invalidate() }
@@ -177,11 +181,43 @@ final class PomodoroStore: ObservableObject {
         value.focusMinutes = focusMinutes
         updateSettings(value)
         rememberTask(name: draftTask, category: draftCategory, minutes: settings.focusMinutes)
+        defaults.set(draftTask, forKey: selectedTaskKey)
+    }
+
+    /// Commit the editor's selection and deletions together. Cancel never calls this.
+    func saveUnifiedTask(name: String, focusMinutes: Int, presets: [FocusTaskPreset]) {
+        guard phase == .idle || phase == .readyForFocus else { return }
+        var names = Set<String>()
+        taskPresets = presets.filter { !$0.name.isEmpty && names.insert($0.name).inserted }
+        persistTaskPresets()
+        saveTaskConfiguration(name: name, category: name, focusMinutes: focusMinutes)
+    }
+
+    private func restoreUnifiedTaskSelection() {
+        if !defaults.bool(forKey: unifiedTasksKey) {
+            for name in ["专注", "工作", "阅读", "学习", "其他"] where !taskPresets.contains(where: { $0.name == name }) {
+                taskPresets.append(FocusTaskPreset(id: UUID(), name: name, category: name,
+                                                  focusMinutes: settings.focusMinutes))
+            }
+            persistTaskPresets()
+            defaults.set(true, forKey: unifiedTasksKey)
+        }
+        let saved = defaults.string(forKey: selectedTaskKey)
+        let candidate = saved ?? (activeTask.isEmpty ? taskPresets.first?.name ?? "" : activeTask)
+        draftTask = taskPresets.contains(where: { $0.name == candidate }) ? candidate : taskPresets.first?.name ?? ""
+        draftCategory = draftTask.isEmpty ? "专注" : draftTask
+        defaults.set(draftTask, forKey: selectedTaskKey)
     }
 
     func removeTaskPreset(id: UUID) {
+        let removed = taskPresets.first(where: { $0.id == id })?.name
         taskPresets.removeAll { $0.id == id }
         persistTaskPresets()
+        if removed == draftTask {
+            draftTask = taskPresets.first?.name ?? ""
+            draftCategory = draftTask.isEmpty ? "专注" : draftTask
+            defaults.set(draftTask, forKey: selectedTaskKey)
+        }
     }
 
     private func rememberTask(name: String, category: String, minutes: Int) {
@@ -221,8 +257,60 @@ final class PomodoroStore: ObservableObject {
         persistTaskPresets()
     }
 
+    var hasAutomaticTransitions: Bool { settings.autoStartBreak || settings.autoStartFocus }
+
+    var automaticCycleHelp: String {
+        guard hasAutomaticTransitions else { return "自动循环已关闭。\n点击恢复上次循环设置，不影响当前计时。" }
+        let detail: String
+        if settings.autoStartBreak && settings.autoStartFocus {
+            detail = "专注后自动休息，休息后开始下一轮。"
+        } else if settings.autoStartBreak {
+            detail = "专注后自动休息，休息结束后等待手动开始。"
+        } else {
+            detail = "休息后开始下一轮，专注结束后等待手动开始休息。"
+        }
+        return "自动循环已开启。\n" + detail + "\n点击关闭，不影响当前计时。"
+    }
+
+    func toggleAutomaticCycle() {
+        if hasAutomaticTransitions { stopAutomaticCycle(); return }
+        let saved = defaults.data(forKey: cycleOptionsKey)
+            .flatMap { try? JSONDecoder().decode(AutomaticCycleOptions.self, from: $0) }
+        var value = settings
+        if let saved, saved.autoStartBreak || saved.autoStartFocus {
+            value.autoStartBreak = saved.autoStartBreak
+            value.autoStartFocus = saved.autoStartFocus
+        } else {
+            // First activation enables the full cycle; subsequent activations restore the last combination.
+            value.autoStartBreak = true; value.autoStartFocus = true
+        }
+        updateSettings(value)
+    }
+
+    private struct AutomaticCycleOptions: Codable {
+        let autoStartBreak: Bool
+        let autoStartFocus: Bool
+    }
+
+    private func rememberAutomaticCycle() {
+        guard hasAutomaticTransitions else { return }
+        let options = AutomaticCycleOptions(autoStartBreak: settings.autoStartBreak, autoStartFocus: settings.autoStartFocus)
+        if let data = try? JSONEncoder().encode(options) { defaults.set(data, forKey: cycleOptionsKey) }
+    }
+
+    /// Disable future transitions without ending or shortening the active phase.
+    func stopAutomaticCycle() {
+        guard hasAutomaticTransitions else { return }
+        var value = settings
+        value.autoStartBreak = false
+        value.autoStartFocus = false
+        updateSettings(value)
+    }
+
     func updateSettings(_ value: FocusSettings) {
+        rememberAutomaticCycle()
         settings = value.validated
+        rememberAutomaticCycle()
         if let data = try? JSONEncoder().encode(settings) { defaults.set(data, forKey: settingsKey) }
         // The active phase keeps its deadline and original duration, including when paused.
         onPresentationChange?()
@@ -291,6 +379,7 @@ final class PomodoroStore: ObservableObject {
         activeTask = String(draftTask.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
         activeCategory = draftCategory
         rememberTask(name: activeTask, category: activeCategory, minutes: settings.focusMinutes)
+        if taskPresetsReady { defaults.set(activeTask, forKey: selectedTaskKey) }
         activeDuration = focusDuration
         phase = .focus; pausedRemaining = nil; endDate = now().addingTimeInterval(focusDuration)
     }
@@ -359,7 +448,6 @@ final class PomodoroStore: ObservableObject {
             activeSessionID = nil; startedAt = nil
             completedFocuses += 1
             focusCompletionDates.append(endDate)
-            if focusCompletionDates.count > 365 { focusCompletionDates.removeFirst(focusCompletionDates.count - 365) }
             // Count by the session's completion day, never a cross-day persisted
             // counter. A session spanning midnight belongs to its completion day.
             let dailyCount = completedFocusCount(on: endDate)
@@ -409,6 +497,30 @@ final class PomodoroStore: ObservableObject {
 
     private func completedFocusCount(on date: Date) -> Int {
         records.filter { $0.completed && Calendar.current.isDate($0.endedAt, inSameDayAs: date) }.count
+    }
+
+    @discardableResult
+    func deleteFocusHistory() -> Bool {
+        guard !hasActiveSession else { return false }
+        records = []; focusCompletionDates = []; completedFocuses = 0
+        completionRecordID = nil; lastAbandonedRecordID = nil
+        pendingLongBreak = false; focusesSinceLongBreak = 0
+        activeTask = ""; activeCategory = "专注"; activeDuration = focusDuration
+        activeSessionID = nil; startedAt = nil
+        if phase == .completed { phase = .idle }
+        defaults.removeObject(forKey: "pangpang.focus.lastCompletionReminder")
+        announceStateChanged()
+        return true
+    }
+
+    @discardableResult
+    func deleteSavedTasks() -> Bool {
+        guard !hasActiveSession else { return false }
+        taskPresets = []; draftTask = ""; draftCategory = "专注"
+        persistTaskPresets()
+        defaults.set("", forKey: selectedTaskKey)
+        defaults.set(true, forKey: unifiedTasksKey)
+        return true
     }
 
     func persist() {

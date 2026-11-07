@@ -4,6 +4,7 @@ import Carbon
 @preconcurrency import UserNotifications
 import OSLog
 
+#if !RELEASE_ACCEPTANCE
 @main
 @MainActor
 enum PangpangDesktopPetApp {
@@ -17,12 +18,22 @@ enum PangpangDesktopPetApp {
         withExtendedLifetime(delegate) { application.run() }
     }
 }
+#endif
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
-    private let pomodoro = PomodoroStore()
-    private let wellbeing = WellbeingStore()
-    private let appBlocker = AppBlockerStore()
+    private let pomodoro: PomodoroStore
+    private let wellbeing: WellbeingStore
+    private let appBlocker: AppBlockerStore
+    private let registersGlobalShortcut: Bool
+
+    init(defaults: UserDefaults = .standard, registersGlobalShortcut: Bool = true, monitorsApplications: Bool = true) {
+        pomodoro = PomodoroStore(defaults: defaults)
+        wellbeing = WellbeingStore(defaults: defaults)
+        appBlocker = AppBlockerStore(defaults: defaults, monitorsApplications: monitorsApplications)
+        self.registersGlobalShortcut = registersGlobalShortcut
+        super.init()
+    }
     private var petWindow: NSPanel?
     private var toolboxWindow: NSPanel?
     private var bubbleWindow: NSPanel?
@@ -51,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         configureApplicationMenu()
         configureNotifications()
         configurePetWindow()
-        configureShortcut()
+        if registersGlobalShortcut { configureShortcut() }
         configureOutsideClickDismissal()
         configureStatusItem()
         pomodoro.onBubble = { [weak self] bubble in self?.showBubble(bubble) }
@@ -102,6 +113,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         appBlocker.setFocusActive(pomodoro.phase == .focus)
         updatePetPresentation()
         updateMiniCard()
+        // A regular Dock app must present its content on initial launch, too.
+        // Reopen callbacks only cover later Dock activations.
+        showLastSurface()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -178,6 +192,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let applicationMenu = NSMenu(title: AppBrand.name)
         let open = applicationMenu.addItem(withTitle: "打开专注", action: #selector(toggleToolbox), keyEquivalent: "")
         open.target = self
+        let feedback = applicationMenu.addItem(withTitle: "意见反馈…", action: #selector(openFeedbackPage), keyEquivalent: "")
+        feedback.target = self
+        let updates = applicationMenu.addItem(withTitle: "版本与更新…", action: #selector(openUpdatesPage), keyEquivalent: "")
+        updates.target = self
         applicationMenu.addItem(.separator())
         let quit = applicationMenu.addItem(withTitle: "退出 \(AppBrand.name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
@@ -196,6 +214,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         editItem.submenu = edit
         main.addItem(editItem)
         NSApp.mainMenu = main
+    }
+
+    @objc private func openFeedbackPage() { showSupportSettings(.feedback) }
+    @objc private func openUpdatesPage() { showSupportSettings(.updates) }
+
+    private func showSupportSettings(_ section: SettingsSection) {
+        showToolbox(initialTool: .home)
+        guard let panel = toolboxWindow else { return }
+        install(FocusSettingsView(store: pomodoro, appBlocker: appBlocker, initialSection: section,
+            onClose: { [weak self] in self?.showToolbox(initialTool: .home) }), in: panel)
     }
 
     private func configurePetWindow() {
@@ -810,7 +838,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func install<Content: View>(_ content: Content, in panel: NSPanel) {
-        let lightContent = content.environment(\.colorScheme, .light)
+        let lightContent = content.environment(\.colorScheme, .light).environmentObject(wellbeing)
         let host = ClearHostingView(rootView: lightContent)
         panel.contentView = host
         panel.appearance = NSAppearance(named: .aqua)

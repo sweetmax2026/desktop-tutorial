@@ -1,0 +1,32 @@
+# Local builds, generated files and per-user editor state.
+.DS_Store
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.app/
+*.dmg
+*.pkg
+node_modules/
+__pycache__/
+*.py[cod]
+*.log
+.wrangler/
+
+# Runtime credentials and feedback data must never enter Git.
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+.admin.env
+*.sqlite*
+*.db
+feedback-service/data/
+feedback-service/cloudflare/public/
+
+# Local native-app/system-settings captures are not release screenshots.
+design/release-acceptance-*/
+design/feedback-admin-preview.png
+design/feedback-live-installed.png
+design/cloudflare-authorization.png

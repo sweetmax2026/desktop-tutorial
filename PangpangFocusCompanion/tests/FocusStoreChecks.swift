@@ -230,6 +230,41 @@ import Foundation
         let activeRest = fresh()
         assert(activeRest.phase == .longBreak && activeRest.remainingText() == "02:00")
         assert(activeRest.records.count == 8 && activeRest.records.allSatisfy { $0.completed })
+        // The shortcut must stop the next transition, never the current timer.
+        for stopDuringRest in [false, true] {
+            let cycleSuite = "pangpang.test.stop-cycle.\(UUID().uuidString)"
+            let cycleDefaults = UserDefaults(suiteName: cycleSuite)!
+            defer { cycleDefaults.removePersistentDomain(forName: cycleSuite) }
+            var cycleClock = Date()
+            let cycle = PomodoroStore(defaults: cycleDefaults, now: { cycleClock }, schedulesTimer: false)
+            cycle.updateSettings(FocusSettings(focusMinutes: 1, shortBreakMinutes: 1,
+                longBreakMinutes: 2, autoStartBreak: true, autoStartFocus: true))
+            cycle.draftTask = "保留当前任务"
+            cycle.startFocus()
+            if stopDuringRest {
+                cycleClock = cycleClock.addingTimeInterval(60)
+                cycle.refreshForCurrentTime()
+                assert(cycle.isRestSession)
+            }
+            let deadline = cycle.endDate
+            let phase = cycle.phase
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .sortedKeys
+            let records = try encoder.encode(cycle.records)
+            cycle.stopAutomaticCycle()
+            cycle.stopAutomaticCycle()
+            assert(!cycle.hasAutomaticTransitions && cycle.endDate == deadline && cycle.phase == phase)
+            assert(cycle.activeTask == "保留当前任务" && cycle.settings.focusMinutes == 1)
+            let afterRecords = try encoder.encode(cycle.records)
+            assert(afterRecords == records)
+            let restored = PomodoroStore(defaults: cycleDefaults, now: { cycleClock }, schedulesTimer: false)
+            assert(!restored.hasAutomaticTransitions && restored.endDate == deadline && restored.phase == phase)
+            cycleClock = deadline!
+            restored.refreshForCurrentTime()
+            assert(restored.phase == (stopDuringRest ? .readyForFocus : .completed))
+            assert(restored.endDate == nil && restored.records.count == 1 && restored.records[0].completed)
+        }
+        print("PASS: stop automatic cycle during focus/rest preserves deadline, task, records and durations; persists and prevents next transition")
         print("PASS: strict focus, no pause, reset guard, partial time, idempotency, explicit completion/rest/next focus")
         print("PASS: persisted completion, pending long break, notes, settings, visibility, legacy paused migration")
         print("PASS: local completion reminder, startup replay, persistent per-record deduplication")

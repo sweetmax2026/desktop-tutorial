@@ -175,8 +175,11 @@ struct FocusFlowScreen: View {
                     .accessibilityValue(running ? (store.remainingText() ?? store.configuredFocusText) : store.configuredFocusText)
                     .accessibilityIdentifier(running ? "focus.countdown" : "focus.duration")
                 if running {
-                    HoldToAbandon(action: store.endCurrentSession)
-                        .frame(width: 210, height: 48)
+                    HStack(spacing: 12) {
+                        HoldToAbandon(action: store.endCurrentSession)
+                            .frame(width: 210, height: 48)
+                        AutomaticCycleToggle(store: store, lightInk: true)
+                    }.zIndex(20)
                         .position(x: width / 2, y: height - 52)
                         .opacity(progress)
                         .animation(reduceMotion ? nil : .easeOut(duration: entryDuration * 0.35).delay(entryDuration * 0.65), value: focusProgress)
@@ -206,12 +209,15 @@ struct FocusFlowScreen: View {
             Text("休息中").font(.system(size: 15, weight: .medium))
                 .foregroundStyle(FocusTheme.secondary).padding(.bottom, 16)
             countdown(size: 124, color: FocusTheme.ink)
+            HStack(spacing: 12) {
             Button("结束休息") { store.resetToReady() }
                 .buttonStyle(.plain).font(.system(size: 17, weight: .medium))
                 .frame(width: 224, height: 56)
                 .background(FocusTheme.accent.opacity(0.1), in: Capsule())
-                .padding(.top, 36).accessibilityIdentifier("focus.endRest")
+                .accessibilityIdentifier("focus.endRest")
                 .help("结束休息，回到准备；不会自动开始下一轮。")
+                AutomaticCycleToggle(store: store)
+            }.padding(.top, 36).zIndex(20)
         }
     }
 
@@ -251,7 +257,10 @@ struct FocusFlowScreen: View {
             Text("这一轮，完成了").font(.system(size: 26, weight: .semibold))
             Text("\(Int((store.completionRecord?.seconds ?? 0) / 60)) 分钟")
                 .font(.system(size: 60, weight: .semibold, design: .rounded)).monospacedDigit()
-            primary("休息一下", id: "focus.startRest") { store.startBreak() }.padding(.top, 8)
+            HStack(spacing: 12) {
+                primary("休息一下", id: "focus.startRest") { store.startBreak() }
+                AutomaticCycleToggle(store: store)
+            }.padding(.top, 8).zIndex(20)
             HStack(spacing: 22) {
                 Button("记一笔") { openNote() }.accessibilityIdentifier("focus.note")
                     .popover(isPresented: $showsNote) { noteEditor }
@@ -323,6 +332,88 @@ struct FocusFlowScreen: View {
     }
 }
 
+private struct AutomaticCycleToggle: View {
+    @ObservedObject var store: PomodoroStore
+    var scale: CGFloat = 1
+    var lightInk = false
+    @State private var hovered = false
+    @State private var showsTooltip = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: store.toggleAutomaticCycle) {
+            Image(systemName: "repeat")
+                .font(.system(size: 14.4 * scale, weight: .medium))
+                .overlay {
+                    if !store.hasAutomaticTransitions {
+                        Image(systemName: "line.diagonal")
+                            .font(.system(size: 19 * scale, weight: .medium))
+                    }
+                }
+                .foregroundStyle(ink)
+                .frame(width: 28.8 * scale, height: 28.8 * scale)
+                .background(background, in: Circle())
+                // The visible button is 20% smaller; preserve a forgiving hit target.
+                .frame(width: 36 * scale, height: 36 * scale)
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain)
+            .onHover {
+                hovered = $0
+                if !$0 { showsTooltip = false }
+            }
+            .task(id: hovered) {
+                guard hovered else { return }
+                do { try await Task.sleep(nanoseconds: 200_000_000) }
+                catch { return }
+                guard !Task.isCancelled, hovered else { return }
+                showsTooltip = true
+            }
+            .overlay(alignment: lightInk ? .bottomLeading : .topLeading) {
+                if showsTooltip {
+                    AutomaticCycleTooltip(text: store.automaticCycleHelp, scale: scale)
+                        .offset(x: 12 * scale, y: (lightInk ? -48 : 48) * scale)
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                        .transition(.opacity)
+                }
+            }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: showsTooltip)
+            .zIndex(showsTooltip ? 20 : 0)
+            .accessibilityLabel(store.hasAutomaticTransitions ? "关闭自动循环" : "恢复自动循环")
+            .accessibilityValue(store.hasAutomaticTransitions ? "已开启" : "已关闭")
+            .accessibilityHint(store.automaticCycleHelp)
+            .accessibilityIdentifier("focus.automaticCycleToggle")
+    }
+
+    private var ink: Color {
+        if lightInk { return .white.opacity(store.hasAutomaticTransitions ? 1 : 0.55) }
+        return store.hasAutomaticTransitions ? Color(red: 0.23, green: 0.46, blue: 1) : FocusTheme.secondary
+    }
+    private var background: Color {
+        if lightInk { return .white.opacity(hovered ? 0.15 : 0) }
+        return hovered ? FocusTheme.accent.opacity(0.12) : .white.opacity(0.55)
+    }
+}
+
+struct AutomaticCycleTooltip: View {
+    let text: String
+    var scale: CGFloat = 1
+    var body: some View {
+        let lines = text.components(separatedBy: "\n")
+        VStack(alignment: .leading, spacing: 5 * scale) {
+            Text(lines.first ?? "").font(.system(size: 12 * scale, weight: .semibold))
+            Text(lines.dropFirst().joined(separator: "\n"))
+                .font(.system(size: 11 * scale)).lineSpacing(3 * scale)
+        }
+        .foregroundStyle(Color(red: 0.12, green: 0.15, blue: 0.20))
+        .padding(12 * scale)
+        .frame(width: 260 * scale, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(Color.white.opacity(0.97), in: RoundedRectangle(cornerRadius: 10 * scale))
+        .overlay(RoundedRectangle(cornerRadius: 10 * scale).strokeBorder(Color.black.opacity(0.06), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.15), radius: 9 * scale, x: 0, y: 3 * scale)
+    }
+}
+
 /// The ready-page illustration and controls; the enclosing flow owns the timer
 /// so it can remain continuous when the controls fade away.
 private struct FocusReadySurface: View {
@@ -335,7 +426,9 @@ private struct FocusReadySurface: View {
     var controlsFadeDuration: TimeInterval = 0.16
     @State private var taskDraft = ""
     @State private var minutesDraft = 25
-    @State private var categoryDraft = "专注"
+    @State private var taskOptionsDraft: [FocusTaskPreset] = []
+    @State private var isAddingTask = false
+    @State private var hoveredTaskID: UUID?
     @State private var showsTaskEditor = false
     @State private var showsTaskHistory = false
     @FocusState private var taskFocused: Bool
@@ -367,10 +460,6 @@ private struct FocusReadySurface: View {
                 }.buttonStyle(FocusReadyQuietStyle()).position(x: width - 64 * scale, y: 59 * scale)
 
                 Button {
-                    taskDraft = store.draftTask
-                    minutesDraft = store.settings.focusMinutes
-                    categoryDraft = store.draftCategory
-                    showsTaskHistory = false
                     showsTaskEditor = true
                 } label: {
                     HStack(spacing: 9 * scale) {
@@ -381,16 +470,19 @@ private struct FocusReadySurface: View {
                     }.padding(.horizontal, 12 * scale).frame(maxWidth: column, minHeight: 42 * scale)
                         .contentShape(RoundedRectangle(cornerRadius: 9))
                 }.buttonStyle(FocusReadyQuietStyle())
-                    .accessibilityLabel("编辑本轮任务、时长与类别").accessibilityIdentifier("focus.taskEdit")
+                    .accessibilityLabel("编辑本轮任务和时长").accessibilityIdentifier("focus.taskEdit")
                     .accessibilityValue(store.draftTask.isEmpty ? "未添加任务" : store.draftTask)
                     .sheet(isPresented: $showsTaskEditor) { taskEditor }
                     .position(x: center, y: height * 0.54)
 
+                HStack(spacing: 12 * scale) {
                 Button { store.startFocus() } label: {
                     Text("开始专注").font(.system(size: 21 * scale, weight: .medium))
-                        .frame(width: column, height: 55 * scale)
-                }.buttonStyle(FocusReadyPrimaryStyle()).position(x: center, y: height * 0.64)
+                        .frame(width: column - 48 * scale, height: 55 * scale)
+                }.buttonStyle(FocusReadyPrimaryStyle())
                     .accessibilityIdentifier("focus.start")
+                AutomaticCycleToggle(store: store, scale: scale)
+                }.position(x: center, y: height * 0.64).zIndex(20)
 
                 HStack(spacing: 10 * scale) {
                     readyShortcut("1 分钟冥想", icon: "leaf", fallback: "leaf", id: "focus.meditation", scale: scale, width: (column + 12 * scale) / 2) {
@@ -432,7 +524,7 @@ private struct FocusReadySurface: View {
     }
 
     private func saveTask() {
-        store.saveTaskConfiguration(name: taskDraft, category: categoryDraft, focusMinutes: minutesDraft)
+        store.saveUnifiedTask(name: taskDraft, focusMinutes: minutesDraft, presets: taskOptionsDraft)
         showsTaskEditor = false
         taskFocused = false
     }
@@ -452,71 +544,117 @@ private struct FocusReadySurface: View {
         }.buttonStyle(FocusReadyQuietStyle()).accessibilityIdentifier(id)
     }
     private var taskEditor: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 20) {
             Text("本轮任务").font(.system(size: 16, weight: .semibold))
-            HStack(spacing: 6) {
-                TextField("任务名称（选填）", text: $taskDraft).textFieldStyle(.roundedBorder)
-                    .focused($taskFocused).onSubmit(saveTask)
-                    .accessibilityLabel("任务名称").accessibilityIdentifier("focus.taskInput")
-                Button { showsTaskHistory.toggle() } label: {
-                    Image(systemName: showsTaskHistory ? "chevron.up" : "chevron.down").frame(width: 28, height: 24)
-                }.accessibilityLabel("选择历史任务").accessibilityIdentifier("focus.taskHistory")
+            HStack(spacing: 12) {
+                Text(isAddingTask ? "新任务" : "任务").frame(width: 70, alignment: .leading)
+                if isAddingTask {
+                    TextField("输入任务名称", text: $taskDraft).textFieldStyle(.roundedBorder)
+                        .focused($taskFocused).onSubmit { if !taskDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { saveTask() } }
+                        .accessibilityLabel("新任务名称").accessibilityIdentifier("focus.taskInput")
+                } else {
+                    Button { showsTaskHistory.toggle() } label: {
+                        HStack {
+                            Text(taskDraft.isEmpty ? "选择任务" : taskDraft).lineLimit(1)
+                            Spacer(minLength: 12)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                                .frame(width: 16, height: 18).background(Color.accentColor, in: RoundedRectangle(cornerRadius: 4))
+                        }.padding(.leading, 6).padding(.trailing, 2).frame(maxWidth: .infinity, minHeight: 22)
+                            .contentShape(Rectangle())
+                    }.buttonStyle(.bordered)
+                        .accessibilityLabel("任务").accessibilityValue(taskDraft)
+                        .accessibilityIdentifier("focus.taskPicker")
+                        .popover(isPresented: $showsTaskHistory, arrowEdge: .bottom) { taskMenu }
+                }
             }
-            if showsTaskHistory {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("历史任务").font(.system(size: 11)).foregroundStyle(FocusTheme.secondary)
-                    if store.taskPresets.isEmpty {
-                        Text("还没有历史任务，保存后会出现在这里。")
-                            .font(.system(size: 12)).foregroundStyle(FocusTheme.secondary).padding(.vertical, 10)
-                    } else {
-                        ScrollView {
-                            LazyVStack(spacing: 2) {
-                                ForEach(store.taskPresets) { preset in
-                                    HStack(spacing: 6) {
-                                        Button {
-                                            taskDraft = preset.name; categoryDraft = preset.category
-                                            minutesDraft = preset.focusMinutes; showsTaskHistory = false
-                                        } label: {
-                                            VStack(alignment: .leading, spacing: 3) {
-                                                Text(preset.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                                                Text("\(preset.category) · \(preset.focusMinutes) 分钟")
-                                                    .font(.system(size: 11)).foregroundStyle(FocusTheme.secondary)
-                                            }.frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle())
-                                        }.buttonStyle(.plain).accessibilityLabel("选择 \(preset.name)，\(preset.category)，\(preset.focusMinutes) 分钟")
-                                        Button { store.removeTaskPreset(id: preset.id) } label: {
-                                            Image(systemName: "trash").frame(width: 28, height: 30)
-                                        }.buttonStyle(.borderless).help("从历史任务中移除，已完成记录保留")
-                                            .accessibilityLabel("删除历史任务 \(preset.name)")
-                                    }
-                                }
-                            }
-                        }.frame(height: min(160, CGFloat(store.taskPresets.count) * 54))
-                    }
-                    Button("添加新任务") { taskDraft = ""; showsTaskHistory = false; taskFocused = true }
-                        .buttonStyle(.link).accessibilityIdentifier("focus.newTask")
-                }.padding(10).background(FocusTheme.accent.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
+            HStack(spacing: 12) {
+                Text("专注时长").frame(width: 70, alignment: .leading)
+                Stepper("\(minutesDraft) 分钟", value: $minutesDraft, in: 1...180)
+                    .accessibilityIdentifier("focus.taskMinutes")
+                Spacer(minLength: 0)
             }
-            Stepper("专注 \(minutesDraft) 分钟", value: $minutesDraft, in: 1...180)
-                .accessibilityIdentifier("focus.taskMinutes")
-            Picker("类别", selection: $categoryDraft) {
-                ForEach(taskCategories, id: \.self) { Text($0) }
+            if isAddingTask {
+                Button("返回任务列表") {
+                    isAddingTask = false
+                    let previous = taskOptionsDraft.first { $0.name == store.draftTask } ?? taskOptionsDraft.first
+                    taskDraft = previous?.name ?? ""
+                    taskFocused = false
+                }.buttonStyle(.link).accessibilityIdentifier("focus.backToTaskList")
+            } else {
+                Text("保存后，下次继续沿用所选任务和时长。")
+                    .font(.system(size: 12)).foregroundStyle(FocusTheme.secondary)
             }
             HStack {
                 Button("取消") { showsTaskEditor = false }.keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("保存并使用", action: saveTask).keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isAddingTask && taskDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("focus.saveTask")
             }
-        }.padding(22).frame(width: 340).environment(\.colorScheme, .light)
+        }.font(.system(size: 13)).padding(22).frame(width: 360).environment(\.colorScheme, .light)
             .onAppear {
+                taskDraft = store.draftTask
+                minutesDraft = store.settings.focusMinutes
+                taskOptionsDraft = store.taskPresets
+                isAddingTask = taskOptionsDraft.isEmpty
+                showsTaskHistory = false
                 NSApp.activate(ignoringOtherApps: true)
-                DispatchQueue.main.async { taskFocused = true }
+                taskFocused = isAddingTask
             }
-            .onDisappear { taskFocused = false }
+            .onDisappear { taskFocused = false; showsTaskHistory = false }
     }
-    private var taskCategories: [String] {
-        let categories = ["专注", "工作", "阅读", "学习", "其他"]
-        return categories.contains(categoryDraft) ? categories : categories + [categoryDraft]
+
+    private var taskMenu: some View {
+        VStack(spacing: 6) {
+            if taskOptionsDraft.isEmpty {
+                Text("还没有任务").foregroundStyle(.secondary).padding(12)
+            } else {
+                ScrollView {
+                    VStack(spacing: 2) {
+                        ForEach(taskOptionsDraft) { preset in
+                            HStack(spacing: 0) {
+                                Button {
+                                    taskDraft = preset.name; minutesDraft = preset.focusMinutes
+                                    showsTaskHistory = false
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "checkmark").opacity(taskDraft == preset.name ? 1 : 0)
+                                            .frame(width: 14)
+                                        Text(preset.name).lineLimit(1)
+                                        Spacer(minLength: 4)
+                                    }.padding(.leading, 8).frame(maxWidth: .infinity, minHeight: 30)
+                                        .contentShape(Rectangle())
+                                }.buttonStyle(.plain).accessibilityLabel("选择任务 \(preset.name)")
+                                Button {
+                                    taskOptionsDraft.removeAll { $0.id == preset.id }
+                                    if taskDraft == preset.name {
+                                        taskDraft = taskOptionsDraft.first?.name ?? ""
+                                        if let first = taskOptionsDraft.first { minutesDraft = first.focusMinutes }
+                                    }
+                                } label: {
+                                    Image(systemName: "trash").frame(width: 30, height: 30)
+                                        .foregroundStyle(.secondary).opacity(hoveredTaskID == preset.id ? 1 : 0.4)
+                                }.buttonStyle(.plain).help("移除选项，历史专注记录保留；保存后生效")
+                                    .accessibilityLabel("删除任务 \(preset.name)")
+                            }.background(taskDraft == preset.name ? Color.accentColor.opacity(0.13) : Color.clear,
+                                         in: RoundedRectangle(cornerRadius: 5))
+                                .onHover { hoveredTaskID = $0 ? preset.id : nil }
+                        }
+                    }
+                }.frame(height: min(240, CGFloat(taskOptionsDraft.count) * 32))
+            }
+            Divider()
+            Button {
+                showsTaskHistory = false; isAddingTask = true; taskDraft = ""
+                DispatchQueue.main.async { taskFocused = true }
+            } label: {
+                Label("新增任务…", systemImage: "plus").frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8).contentShape(Rectangle())
+            }.buttonStyle(.plain).foregroundStyle(Color.accentColor)
+                .accessibilityIdentifier("focus.newTask")
+        }.padding(6).frame(width: 270).font(.system(size: 13))
     }
 }
 

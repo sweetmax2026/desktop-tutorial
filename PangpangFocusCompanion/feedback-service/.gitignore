@@ -1,0 +1,9 @@
+.env
+data/
+*.sqlite*
+node_modules/
+.wrangler/
+cloudflare/public/
+.dev.vars
+cloudflare/.dev.vars
+cloudflare/.admin.env

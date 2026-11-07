@@ -1,0 +1,6 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pang 大师 · 用户反馈</title><link rel="stylesheet" href="/admin.css"><script src="/admin.js" defer></script></head>
+<body><main><header><div><p class="eyebrow">PANG 大师</p><h1>用户反馈</h1><p>集中查看问题和建议，记录处理进度。</p></div><button id="logout" hidden>退出登录</button></header>
+<form id="login"><h2>管理员登录</h2><label for="password">管理密码</label><input id="password" type="password" autocomplete="current-password" required maxlength="256"><button type="submit" class="primary">登录</button><p class="muted">仅开发者可查看反馈，登录有效期为8小时。</p></form>
+<p id="message" role="status" aria-live="polite"></p>
+<section id="inbox" hidden><div class="toolbar"><h2>反馈列表</h2><button id="refresh">刷新</button></div><p class="muted">按提交时间倒序排列。反馈保留180天；可提前删除。</p><div id="rows"></div><nav><button id="previous">上一页</button><span id="page"></span><button id="next">下一页</button></nav></section>
+</main></body></html>

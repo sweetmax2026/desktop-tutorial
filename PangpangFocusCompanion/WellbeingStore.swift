@@ -40,13 +40,16 @@ final class WellbeingStore: ObservableObject {
     private let meditationCompletionsKey = "pangpang.meditation.completions"
     private let lastMeditationReminderKey = "pangpang.meditation.lastReminderMinute"
     private var timer: Timer?
+    private let defaults: UserDefaults
+    private let now: () -> Date
 
-    init() {
-        let defaults = [MeditationTime(hour: 11, minute: 0), MeditationTime(hour: 16, minute: 30), MeditationTime(hour: 20, minute: 0)]
-        meditationTimes = UserDefaults.standard.data(forKey: timesKey).flatMap { try? JSONDecoder().decode([MeditationTime].self, from: $0) } ?? defaults
-        moodEntries = UserDefaults.standard.data(forKey: moodsKey).flatMap { try? JSONDecoder().decode([MoodEntry].self, from: $0) } ?? []
-        meditationCompletionDates = UserDefaults.standard.data(forKey: meditationCompletionsKey).flatMap { try? JSONDecoder().decode([Date].self, from: $0) } ?? []
-        startTimer()
+    init(defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init, schedulesTimer: Bool = true) {
+        self.defaults = defaults; self.now = now
+        let defaultTimes = [MeditationTime(hour: 11, minute: 0), MeditationTime(hour: 16, minute: 30), MeditationTime(hour: 20, minute: 0)]
+        meditationTimes = defaults.data(forKey: timesKey).flatMap { try? JSONDecoder().decode([MeditationTime].self, from: $0) } ?? defaultTimes
+        moodEntries = defaults.data(forKey: moodsKey).flatMap { try? JSONDecoder().decode([MoodEntry].self, from: $0) } ?? []
+        meditationCompletionDates = defaults.data(forKey: meditationCompletionsKey).flatMap { try? JSONDecoder().decode([Date].self, from: $0) } ?? []
+        if schedulesTimer { startTimer() }
     }
 
     deinit { timer?.invalidate() }
@@ -60,7 +63,7 @@ final class WellbeingStore: ObservableObject {
     }
 
     func startMeditation() {
-        let now = Date()
+        let now = now()
         currentTime = now
         meditationEndDate = now.addingTimeInterval(60)
         meditationSessionID = UUID()
@@ -84,10 +87,9 @@ final class WellbeingStore: ObservableObject {
 
     func recordMood(emoji: String, name: String, note: String) {
         let trimmedNote = String(note.prefix(100)).trimmingCharacters(in: .whitespacesAndNewlines)
-        moodEntries.insert(MoodEntry(id: UUID(), createdAt: .now, emoji: emoji, name: name, note: trimmedNote.isEmpty ? nil : trimmedNote), at: 0)
-        if moodEntries.count > 100 { moodEntries = Array(moodEntries.prefix(100)) }
+        moodEntries.insert(MoodEntry(id: UUID(), createdAt: now(), emoji: emoji, name: name, note: trimmedNote.isEmpty ? nil : trimmedNote), at: 0)
         guard let data = try? JSONEncoder().encode(moodEntries) else { return }
-        UserDefaults.standard.set(data, forKey: moodsKey)
+        defaults.set(data, forKey: moodsKey)
     }
 
     func moodCountToday() -> Int {
@@ -100,7 +102,7 @@ final class WellbeingStore: ObservableObject {
 
     private func persistTimes() {
         guard let data = try? JSONEncoder().encode(meditationTimes) else { return }
-        UserDefaults.standard.set(data, forKey: timesKey)
+        defaults.set(data, forKey: timesKey)
         refreshMeditationReminders()
     }
 
@@ -110,15 +112,14 @@ final class WellbeingStore: ObservableObject {
         }
     }
 
-    private func refreshMeditation() {
-        currentTime = Date()
+    func refreshMeditation() {
+        currentTime = now()
         checkScheduledMeditationReminder(at: currentTime)
         guard let meditationEndDate, meditationEndDate <= currentTime else { return }
         self.meditationEndDate = nil
         meditationCompletionDates.append(currentTime)
-        if meditationCompletionDates.count > 365 { meditationCompletionDates.removeFirst(meditationCompletionDates.count - 365) }
         if let data = try? JSONEncoder().encode(meditationCompletionDates) {
-            UserDefaults.standard.set(data, forKey: meditationCompletionsKey)
+            defaults.set(data, forKey: meditationCompletionsKey)
         }
         onStateChange?()
     }
@@ -131,9 +132,22 @@ final class WellbeingStore: ObservableObject {
               meditationTimes.contains(where: { $0.hour == hour && $0.minute == minute }) else { return }
 
         let minuteKey = "\(components.year ?? 0)-\(components.month ?? 0)-\(components.day ?? 0)-\(hour)-\(minute)"
-        let defaults = UserDefaults.standard
         guard defaults.string(forKey: lastMeditationReminderKey) != minuteKey else { return }
         defaults.set(minuteKey, forKey: lastMeditationReminderKey)
         onMeditationReminderDue?()
+    }
+
+    func deleteMoodHistory() {
+        moodEntries = []
+        defaults.set(try? JSONEncoder().encode(moodEntries), forKey: moodsKey)
+    }
+
+    @discardableResult
+    func deleteMeditationHistory() -> Bool {
+        guard !isMeditating else { return false }
+        meditationCompletionDates = []
+        defaults.set(try? JSONEncoder().encode(meditationCompletionDates), forKey: meditationCompletionsKey)
+        onStateChange?()
+        return true
     }
 }

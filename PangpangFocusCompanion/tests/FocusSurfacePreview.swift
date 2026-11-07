@@ -52,9 +52,9 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
         defaults.set(try! JSONSerialization.data(withJSONObject: snapshot), forKey: "pangpang.app-blocker.snapshot")
         blocker = AppBlockerStore(defaults: defaults, monitorsApplications: false)
         let day = Calendar.current.startOfDay(for: Date())
-        UserDefaults.standard.set(try! JSONEncoder().encode([Date]()), forKey: "pangpang.meditation.completions")
-        UserDefaults.standard.set(try! JSONEncoder().encode([MoodEntry]()), forKey: "pangpang.mood.entries")
-        wellbeing = WellbeingStore()
+        defaults.set(try! JSONEncoder().encode([Date]()), forKey: "pangpang.meditation.completions")
+        defaults.set(try! JSONEncoder().encode([MoodEntry]()), forKey: "pangpang.mood.entries")
+        wellbeing = WellbeingStore(defaults: defaults)
         clock = Calendar.current.date(byAdding: .hour, value: 10, to: day)!
         store = PomodoroStore(defaults: defaults, now: { [unowned self] in clock }, schedulesTimer: false)
         for index in 0..<2 {
@@ -100,7 +100,11 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
             tests.submenu?.addItem(command)
         }
         for (title, action, key) in [("慢速进入专注（仅检查动画）", #selector(slowFocusEntry), "s"),
-                                      ("正常进入专注", #selector(normalFocusEntry), "n")] {
+                                      ("正常进入专注", #selector(normalFocusEntry), "n"),
+                                      ("启用自动循环（示例数据）", #selector(enableAutomaticCycle), "l"),
+                                      ("隐私与数据（示例数据）", #selector(showPrivacy), "p"),
+                                      ("意见反馈（示例数据）", #selector(showFeedback), "f"),
+                                      ("版本与更新（示例数据）", #selector(showUpdates), "u")] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
             item.target = self; tests.submenu?.addItem(item)
         }
@@ -137,6 +141,27 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc private func showFeedback() { showSupport(.feedback) }
+    @objc private func showUpdates() { showSupport(.updates) }
+    private func showSupport(_ section: SettingsSection) {
+        window.contentView = PreviewHostingView(rootView: FocusSettingsView(
+            store: store, appBlocker: blocker, initialSection: section,
+            onClose: { [unowned self] in showHome() })
+            .environment(\.colorScheme, .light).environmentObject(wellbeing))
+    }
+    @objc private func showPrivacy() {
+        window.contentView = PreviewHostingView(rootView: FocusSettingsView(
+            store: store, appBlocker: blocker, initialSection: .privacy,
+            onClose: { [unowned self] in showHome() })
+            .environment(\.colorScheme, .light).environmentObject(wellbeing))
+    }
+
+    @objc private func enableAutomaticCycle() {
+        var settings = store.settings
+        settings.autoStartBreak = true; settings.autoStartFocus = true
+        store.updateSettings(settings)
+    }
+
     private func showHome() {
         window.contentView = PreviewHostingView(rootView: FocusFlowScreen(store: store, appBlocker: blocker,
             onTool: { [unowned self] tool in
@@ -145,12 +170,12 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
                 else if tool == .meditation { showMeditation() }
                 else if tool == .appBlocker { showGuard() }
             }, onHistory: { [unowned self] in showStats(returnToFocus: false) },
-            entryDuration: slowTransition ? 6 : 0.35).environment(\.colorScheme, .light))
+            entryDuration: slowTransition ? 6 : 0.35).environment(\.colorScheme, .light).environmentObject(self.wellbeing))
     }
     private func showFocus() {
         window.contentView = PreviewHostingView(rootView: FocusExperienceView(store: store, appBlocker: blocker,
             onBack: { [unowned self] in showHome() }, onClose: { [unowned self] in window.orderOut(nil) },
-            onHistory: { [unowned self] in showStats(returnToFocus: true) }).environment(\.colorScheme, .light))
+            onHistory: { [unowned self] in showStats(returnToFocus: true) }).environment(\.colorScheme, .light).environmentObject(self.wellbeing))
     }
 
     private func showMood() {
@@ -160,7 +185,7 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
     }
     private func showGuard() {
         window.contentView = PreviewHostingView(rootView: AppGuardPage(store: blocker, pomodoro: store,
-            onBack: { [unowned self] in showHome() }).environment(\.colorScheme, .light))
+            onBack: { [unowned self] in showHome() }).environment(\.colorScheme, .light).environmentObject(self.wellbeing))
     }
     private func showMeditation() {
         window.contentView = PreviewHostingView(rootView: MeditationPage(wellbeing: wellbeing,

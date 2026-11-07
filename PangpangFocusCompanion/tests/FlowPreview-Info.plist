@@ -6,4 +6,5 @@
 <key>CFBundleName</key><string>Pang Flow Preview</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>PangFeedbackURL</key><string>https://pang-feedback.maxwithcoconut.workers.dev/api/feedback</string>
 </dict></plist>

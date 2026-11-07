@@ -35,6 +35,7 @@ struct BlockedApplication: Codable, Identifiable, Equatable {
     let bundleIdentifier: String
     let name: String
     let path: String
+    var bookmark: Data? = nil
 
     var id: String { bundleIdentifier }
 }
@@ -113,6 +114,13 @@ final class AppBlockerStore: ObservableObject {
 
     func toggleEnabled() { setEnabled(!isEnabled) }
 
+    func deleteSavedApplications() {
+        blockedApplications = []
+        isEnabled = false
+        persistAndNotify()
+        updateEnforcement()
+    }
+
     func setFocusActive(_ active: Bool) {
         guard isFocusActive != active else { return }
         isFocusActive = active
@@ -143,7 +151,14 @@ final class AppBlockerStore: ObservableObject {
     }
 
     func icon(for application: BlockedApplication) -> NSImage {
-        let icon = NSWorkspace.shared.icon(forFile: application.path)
+        var stale = false
+        let resolved = application.bookmark.flatMap {
+            try? URL(resolvingBookmarkData: $0, options: [.withSecurityScope, .withoutUI],
+                     relativeTo: nil, bookmarkDataIsStale: &stale)
+        }
+        let scoped = resolved?.startAccessingSecurityScopedResource() ?? false
+        defer { if scoped { resolved?.stopAccessingSecurityScopedResource() } }
+        let icon = NSWorkspace.shared.icon(forFile: resolved?.path ?? application.path)
         icon.size = NSSize(width: 32, height: 32)
         return icon
     }
@@ -153,6 +168,8 @@ final class AppBlockerStore: ObservableObject {
         let ownIdentifier = Bundle.main.bundleIdentifier
 
         for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             guard let bundle = Bundle(url: url),
                   let bundleIdentifier = bundle.bundleIdentifier,
                   bundleIdentifier != ownIdentifier,
@@ -164,7 +181,9 @@ final class AppBlockerStore: ObservableObject {
             let application = BlockedApplication(
                 bundleIdentifier: bundleIdentifier,
                 name: displayName,
-                path: url.path
+                path: url.path,
+                bookmark: try? url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
+                                              includingResourceValuesForKeys: nil, relativeTo: nil)
             )
             applications.removeAll { $0.id == application.id }
             applications.append(application)
